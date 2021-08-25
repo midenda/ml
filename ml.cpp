@@ -29,8 +29,8 @@ float ELU (float x);
 
 float gaussian (float x);
 
-template <size_t length>
-float weighted_sum (float (&values)[length], float (&weights) [length]) 
+
+float weighted_sum (float values[], float weights [], size_t length) 
 {
     float accumulated = 0;
 
@@ -41,16 +41,47 @@ float weighted_sum (float (&values)[length], float (&weights) [length])
     return accumulated;
 };
 
-template <size_t M, size_t N>
 struct Layer
 {
-    float weights [M][N];
-    float activations [M];
+
+    float** weights;
+    size_t size [2];
+
+    float* activations;
     activation_fn fn;
     
-    Layer (float w [M][N], activation_fn f) : weights (), activations (), fn (f)
+    Layer (float** p, size_t M, size_t N, activation_fn f) : fn (f)
     {
-        // weights = ;
+        size [0] = M;
+        size [1] = N;
+        activations = new float [M]();
+
+        if (p == nullptr) 
+        {
+            weights = new float* [M];
+            weights [0] = new float [M * N];
+
+            for (int i = 1; i < M; i++)
+            {
+                weights [i] = weights [i - 1] + N; 
+            };
+
+            for (int i = 0; i < M * N; i++)
+            {
+                weights [0][i] = RandomWeight ();
+            };
+        }
+
+        else 
+        {
+            weights = p;
+        };
+    };
+
+    Layer () {};
+
+    float RandomWeight () {
+        return 0;
     };
 };
 
@@ -58,8 +89,7 @@ struct Layer
 template <size_t depth>
 struct Network 
 {
-    void* layers [depth];
-    size_t sizes [depth][2];
+    Layer layers [depth];
 
     size_t* dim;
 
@@ -73,50 +103,44 @@ struct Network
 
             activation_fn f = functions [i];
 
-            Layer <M, N>* l = new Layer <M, N> (f);
-
-            layers [i] = static_cast <void*> (l);
-            sizes [i][0] = M;
-            sizes [i][1] = N;
+            layers [i] = Layer (nullptr, M, N, f);
         };
     };
 
-    template <size_t M, size_t N>
-    void calc_next_layer (float input [N], Layer<M, N>* l) 
+    void calc_next_layer (float input [], Layer l, size_t size [2]) 
     {
+        size_t M = size [0];
+        size_t N = size [1];
+
         for (int i = 0; i < M; i++) {
-            l -> activations [i] = l -> f (weighted_sum <N> (input, l -> weights [i]));
+            l.activations [i] = l.fn (weighted_sum (input, l.weights [i], N));
         };
     };
 
-    void propagate (int input []) 
+    void propagate (float input []) 
     {
-        void* p = layers;
-
         for (int i = 0; i < depth; i++) {
 
-            size_t M = dim [i + 1];
-            size_t N = dim [i];
+            Layer l = layers [i];
+            calc_next_layer (input, l, l.size);
 
-            Layer <M, N>* l = static_cast <Layer <M, N>*> (p);
-
-            calc_next_layer <M, N> (input, l);
-            input = l -> activations;
-
-            l++;
-
-            p = static_cast <void*> (l);
+            input = l.activations;
         };
     };
 
 
     void PrintOutput () 
     {
-        size_t M = sizes [depth - 1][0];
-        size_t N = sizes [depth - 1][1];
-        Layer <M, N>* layer = static_cast <Layer <M, N>*> (layers [depth - 1]);
+        Layer l = layers [depth - 1];
 
-        std::cout << layer -> activations << std::endl;
+        size_t M = l.size [0];
+
+        for (int i = 0; i < M; i++)
+        {
+            std::cout << l.activations [i];
+        };
+
+        std::cout << std::endl;
     };
 };
 
@@ -126,9 +150,10 @@ int main ()
     size_t dimensions [] = {4, 5, 5, 4};
     activation_fn functions [] = {reLU, reLU, reLU};
 
-    int input [4] = {1, 1, 1, 1};
+    float input [4] = {1, 1, 1, 1};
 
     Network <3> network (dimensions, functions);
+
     network.propagate (input);
     network.PrintOutput ();
 };
