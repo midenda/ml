@@ -1,6 +1,7 @@
-// #include <vector>
 #include <cmath>
 #include <iostream>
+#include <random>
+#include <functional>
 
 typedef float (*activation_fn) (float);
 
@@ -30,9 +31,9 @@ float ELU (float x);
 float gaussian (float x);
 
 
-float weighted_sum (float values[], float weights [], size_t length) 
+float weighted_sum (float values[], float weights [], float bias, size_t length) 
 {
-    float accumulated = 0;
+    float accumulated = bias;
 
     for (int i = 0; i < length; i++) 
     {
@@ -42,20 +43,38 @@ float weighted_sum (float values[], float weights [], size_t length)
     return accumulated;
 };
 
+struct Random 
+{
+    std::random_device rd;
+    std::mt19937 generator;
+    std::normal_distribution <float> distribution;
+
+    Random () : generator (rd ()), distribution (0.0, 1.0) {};
+    Random (int seed) : generator (seed), distribution (0.0, 1.0) {};
+
+    float RandomWeight () 
+    {
+        return distribution (generator);
+    };
+};
+
+
 struct Layer
 {
 
     float** weights;
-    size_t size [2];
+    float* biases;
+    size_t size [2]; // TODO: Refactor into struct size {size_t M, N;};
 
     float* activations;
     activation_fn fn;
     
-    Layer (float** p, size_t M, size_t N, activation_fn f) : fn (f)
+    Layer (float** p, float* b, size_t M, size_t N, activation_fn f, Random* r) : fn (f)
     {
         size [0] = M;
         size [1] = N;
         activations = new float [M]();
+        biases = new float [M];
 
         weights = new float* [M];
         weights [0] = new float [M * N];
@@ -69,7 +88,7 @@ struct Layer
         {
             for (int i = 0; i < M * N; i++)
             {
-                weights [0][i] = RandomWeight ();
+                weights [0][i] = r -> RandomWeight ();
             };
         }
 
@@ -78,6 +97,19 @@ struct Layer
             for (int i = 0; i < M; i++)
                 for (int j = 0; j < N; j++)
                     weights [0][i * N + j] = p [i][j];
+        };
+
+        if (b == nullptr)
+        {
+            for (int i = 0; i < M; i++)
+            {
+                biases [i] = r -> RandomWeight ();
+            };
+        }
+
+        else
+        {
+            biases = b;
         };
     };
 
@@ -93,9 +125,15 @@ struct Layer
         delete [] weights;
     };
 
-    float RandomWeight () 
+    void Set_Activations (float input []) // TODO: Pick a function naming convention
     {
-        return 0;
+        size_t M = size [0];
+        size_t N = size [1];
+
+        for (int i = 0; i < M; i++) 
+        {
+            activations [i] = fn (weighted_sum (input, weights [i], biases [i], N));
+        };
     };
 };
 
@@ -104,8 +142,9 @@ template <size_t depth>
 struct Network 
 {
     Layer* layers [depth];
-
     size_t* dim;
+
+    Random* r = new Random (1000);
 
     Network (size_t dimensions [depth + 1], activation_fn functions [depth]) 
         : dim (dimensions)
@@ -117,7 +156,7 @@ struct Network
 
             activation_fn f = functions [i];
 
-            layers [i] = new Layer (nullptr, M, N, f);
+            layers [i] = new Layer (nullptr, nullptr, M, N, f, r);
         };
     };
 
@@ -129,41 +168,48 @@ struct Network
         };
     };
 
-    void calc_next_layer (float input [], Layer* l, size_t size [2]) 
-    {
-        size_t M = size [0];
-        size_t N = size [1];
-
-        for (int i = 0; i < M; i++) 
-        {
-            l -> activations [i] = l -> fn (weighted_sum (input, l -> weights [i], N));
-        };
-    };
-
     void propagate (float input []) 
     {
         for (int i = 0; i < depth; i++) 
         {
             Layer* l = layers [i];
-            calc_next_layer (input, l, l -> size);
+            l -> Set_Activations (input);
 
             input = l -> activations;
         };
     };
 
 
-    void PrintOutput () 
+    void PrintLayer (Layer* l) 
     {
-        Layer* l = layers [depth - 1];
+        if (l == nullptr)
+        {
+            l = layers [depth - 1];
+        }
 
         size_t M = l -> size [0];
 
         for (int i = 0; i < M; i++)
         {
-            std::cout << l -> activations [i];
+            std::cout << l -> activations [i] << "  ";
         };
 
         std::cout << std::endl;
+    };
+
+    void PrintOutput ()
+    {
+        std::cout << "Output: ";
+        PrintLayer (nullptr);
+    };
+
+    void PrintAllLayers () 
+    {
+        for (int i = 0; i < depth; i++)
+        {
+            std::cout << std::endl << i << std::endl;
+            PrintLayer (layers [i]);
+        };
     };
 };
 
@@ -178,5 +224,6 @@ int main ()
     Network <3> network (dimensions, functions);
 
     network.propagate (input);
+    // network.PrintAllLayers ();
     network.PrintOutput ();
 };
