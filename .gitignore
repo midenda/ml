@@ -1,3 +1,5 @@
 .DS_store
 .env
 .vscode/
+__pycache__/
+ml.dSYM/
