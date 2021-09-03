@@ -260,7 +260,7 @@ struct Layer
         delete [] weights;
     };
 
-    void SetActivations (float input []) // TODO: Pick a function naming convention
+    void SetActivations (float input [])
     {
         size_t M = size.M;
         size_t N = size.N;
@@ -775,3 +775,7 @@ int main ()
 
     system ("python graph.py");
 };
+
+// TODO: improve python graphing
+// TODO: add scaling learning rate
+// TODO: test regularisation
