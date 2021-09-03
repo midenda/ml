@@ -1,3 +1,5 @@
+#define DEBUG_LEVEL 0
+
 #include <cmath>
 #include <iostream>
 #include <fstream>
@@ -9,43 +11,43 @@ typedef float* (*output_fn) (float[], size_t);
 typedef float (*loss_fn) (float[], float[], size_t);
 typedef float* (*loss_gradient) (float[], float[], size_t);
 
-int kronecker (int i, int j)
+int Kronecker (int i, int j)
 {
     return (i == j);
 };
 
-float* identity (float x [], size_t n) 
+float* Identity (float x [], size_t n) 
 {
     return x;
 };
 
-float identity (float x)
+float Identity (float x)
 {
     return x;
 };
 
-float reLU (float x) 
+float ReLU (float x) 
 {
     return (x > 0) ? x : 0;
 };
 
-float heaviside (float x, float a) 
+float Heaviside (float x, float a) 
 {
     return (x + a > 0) ? 1 : 0;
 };
 
-float step (float x) 
+float Step (float x) 
 {
     return (x > 0) ? 1 : 0;
 };
 
-float sigmoid (float x) 
+float Sigmoid (float x) 
 {
     return 1 / (1 + exp (-x));
 
 };
 
-float max (float x [], size_t n)
+float Max (float x [], size_t n)
 {
     float max = x [0];
 
@@ -60,10 +62,10 @@ float max (float x [], size_t n)
     return max;
 };
 
-float* softmax (float x [], size_t n) 
+float* Softmax (float x [], size_t n) 
 {
     float total = 0.0;
-    float stability = - max (x, n);
+    float stability = - Max (x, n);
 
     for (int i = 0; i < n; i++)
     {
@@ -80,16 +82,16 @@ float* softmax (float x [], size_t n)
     return g;
 };
 
-float softplus (float x);
+float Softplus (float x);
 
 float GELU (float x);
 
 float ELU (float x);
 
-float gaussian (float x);
+float Gaussian (float x);
 
 
-float weighted_sum (float values[], float weights [], float bias, size_t length) 
+float WeightedSum (float values[], float weights [], float bias, size_t length) 
 {
     float accumulated = bias;
 
@@ -184,23 +186,29 @@ struct Random
 
 struct Layer
 {
-
-    // void* connections;
-
     float** weights;
     float* biases;
-    size_t size [2]; // TODO: Refactor into struct size {size_t M, N;};
+    struct { size_t M, N; } size;
 
     float* activations;
     float* x;
+
     activation_fn fn;
     activation_fn fn_prime;
     
-    Layer (float** p, float* b, size_t M, size_t N, activation_fn f, activation_fn f_prime, Random* r, int layer_depth) 
+
+    // Constructor
+    Layer 
+    (
+        float** p, float* b, 
+        size_t M, size_t N, 
+        activation_fn f, activation_fn f_prime, 
+        Random* r, int layer_depth
+    ) 
         : fn (f), fn_prime (f_prime)
     {
-        size [0] = M;
-        size [1] = N;
+        size.M = M;
+        size.N = N;
 
         activations = new float [M]();
         x = new float [M]();
@@ -208,7 +216,6 @@ struct Layer
 
         weights = new float* [M];
         weights [0] = new float [M * N];
-
         for (int i = 1; i < M; i++)
         {
             weights [i] = weights [i - 1] + N; 
@@ -221,7 +228,6 @@ struct Layer
                 weights [0][i] = r -> RandomWeight (layer_depth);
             };
         }
-
         else 
         {
             for (int i = 0; i < M; i++)
@@ -236,7 +242,6 @@ struct Layer
                 biases [i] = 0.0;
             };
         }
-
         else
         {
             biases = b;
@@ -255,39 +260,31 @@ struct Layer
         delete [] weights;
     };
 
-    void Set_Activations (float input []) // TODO: Pick a function naming convention
+    void SetActivations (float input []) // TODO: Pick a function naming convention
     {
-        size_t M = size [0];
-        size_t N = size [1];
+        size_t M = size.M;
+        size_t N = size.N;
 
         for (int i = 0; i < M; i++) 
         {
-            x [i] = weighted_sum (input, weights [i], biases [i], N);
+            x [i] = WeightedSum (input, weights [i], biases [i], N);
             activations [i] = fn (x [i]);
         };
     };
 };
 
-
-template <size_t depth>
-struct Hyperparameters
-{
-    size_t dimensions [depth];
-    activation_fn functions [depth];
-    float r_factor;
-};
-
-
 template <size_t depth>
 struct Network 
 {
     Layer* layers [depth];
-    size_t* dim;
+    size_t* dimensions;
     float* output;
-    output_fn f;
+
+    output_fn OutputFunction;
     loss_fn LossFunction;
     loss_gradient LossGradient;
 
+    float regularisation_factor;
     float learning_rate;
 
     Random* r;
@@ -295,18 +292,41 @@ struct Network
     float** weight_gradients [depth];
     float* bias_gradients [depth];
 
-    Network (size_t dimensions [depth + 1], activation_fn functions [depth], activation_fn derivatives [depth], 
-            output_fn fn = identity, loss_fn fn_loss = CrossEntropy, loss_gradient fn_loss_prime = CrossEntropyGradient,
-            float rate = 0.01) 
-        : dim (dimensions), f (fn), LossFunction (fn_loss), LossGradient (fn_loss_prime), learning_rate (rate)
+
+    // Constructor
+    Network 
+    (
+        size_t dimensions [depth + 1], 
+
+        activation_fn functions [depth], 
+        activation_fn derivatives [depth], 
+
+        output_fn OutputFunction = Identity, 
+
+        loss_fn LossFunction = CrossEntropy, 
+        loss_gradient LossGradient = CrossEntropyGradient,
+        float regularisation_factor = 0.0,
+        float learning_rate = 0.01
+    ) 
+
+        // Initialisation List
+        :
+        dimensions (dimensions), 
+        OutputFunction (OutputFunction), 
+        LossFunction (LossFunction), 
+        LossGradient (LossGradient), 
+        regularisation_factor (regularisation_factor),
+        learning_rate (learning_rate)
+
+    // Constructor Body
     {
-        output = new float [dim [depth]];
-        r = new Random (dim, depth, 1000);
+        output = new float [dimensions [depth]];
+        r = new Random (dimensions, depth, 1000);
 
         for (int i = 0; i < depth; i++) 
         {
-            size_t M = dim [i + 1];
-            size_t N = dim [i];
+            size_t M = dimensions [i + 1];
+            size_t N = dimensions [i];
 
             activation_fn f = functions [i];
             activation_fn f_prime = derivatives [i];
@@ -334,19 +354,19 @@ struct Network
         };
     };
 
-    float* propagate (float input []) 
+    float* Propagate (float input []) 
     {
         for (int i = 0; i < depth; i++) 
         {
             Layer* l = layers [i];
-            l -> Set_Activations (input);
+            l -> SetActivations (input);
 
             input = l -> activations;
         };
 
         Layer* l = layers [depth - 1];
-        size_t M = l -> size [0];
-        float* x = f (l -> activations, M);
+        size_t M = l -> size.M;
+        float* x = OutputFunction (l -> activations, M);
 
         for (int i = 0; i < M; i++)
         {
@@ -356,7 +376,6 @@ struct Network
         return output;
     };
 
-
     void PrintLayer (Layer* l) 
     {
         if (l == nullptr)
@@ -364,7 +383,7 @@ struct Network
             l = layers [depth - 1];
         }
 
-        size_t M = l -> size [0];
+        size_t M = l -> size.M;
 
         for (int i = 0; i < M; i++)
         {
@@ -378,7 +397,7 @@ struct Network
     {
         std::cout << "Output: ";
 
-        for (int i = 0; i < dim [depth]; i++)
+        for (int i = 0; i < dimensions [depth]; i++)
         {
             std::cout << output [i] << " ";
         };
@@ -399,10 +418,9 @@ struct Network
         for (int i = 0; i < depth; i++)
         {
             Layer* layer = layers [i];
-            size_t* size = layer -> size;
 
-            size_t M = size [0];
-            size_t N = size [1];
+            size_t M = layer -> size.M;
+            size_t N = layer -> size.N;
 
             std::cout << std::endl << "layer: " << i << std::endl;
             std::cout << "weights: " << std::endl;
@@ -435,12 +453,13 @@ struct Network
 
         for (int i = 0; i < depth; i++)
         {
-            float** w = layers [i] -> weights;
-            // float* b = layers [i] -> biases;
-            size_t* size = layers [i] -> size;
+            Layer* layer = layers [i];
+            float** w = layer -> weights;
+            // float* b = layer -> biases;
+            
 
-            size_t M = size [0];
-            size_t N = size [1];
+            size_t M = layer -> size.M;
+            size_t N = layer -> size.N;
 
             for (int j = 0; j < M; j++)
             {
@@ -457,10 +476,10 @@ struct Network
         return weight_sum;
     };
 
-    void RegulariserGradient_biases (Layer* layer, float* b) 
+    void RegulariserGradientBiases (Layer* layer, float* b) 
     {
         // float* biases = layer -> biases;
-        size_t M = layer -> size [0];
+        size_t M = layer -> size.M;
 
         for (int i = 0; i < M; i++)
         {
@@ -469,13 +488,12 @@ struct Network
         };
     };
 
-    void RegulariserGradient_weights (Layer* layer, float** w) 
+    void RegulariserGradientWeights (Layer* layer, float** w) 
     {
         float** weights = layer -> weights;
-        size_t* size = layer -> size;
 
-        size_t M = size [0];
-        size_t N = size [1];
+        size_t M = layer -> size.M;
+        size_t N = layer -> size.N;
 
         for (int i = 0; i < M; i++)
         {
@@ -486,95 +504,76 @@ struct Network
         };
     };
 
-    float Cost (float input [], float expected [], float r = 0.0) 
+    float Cost (float input [], float expected [], float regularisation = 0.0) 
     {
-        float* output = propagate (input);
-        size_t n = dim [depth];
+        float* output = Propagate (input);
+        size_t n = dimensions [depth];
         float loss = LossFunction (output, expected, n);
 
-        return loss + r;
+        return loss + regularisation;
     };
 
-    float* TrainBatch (float* input_set [], float* expected_set [], size_t batch_size, float r_factor)
+    float* TrainBatch (float* input_set [], float* expected_set [], size_t batch_size)
     { 
         float* costs = new float [batch_size];
 
         for (int i = 0; i < batch_size; i++)
         {
-            float r = r_factor * Regulariser ();
-            costs [i] = Cost (input_set [i], expected_set [i], r);
+            float regularisation = regularisation_factor * Regulariser ();
+            costs [i] = Cost (input_set [i], expected_set [i], regularisation);
 
-            // if (i < 2)
-            //     PrintWeights ();
-            BackPropagate (input_set [i], expected_set [i], r_factor);
+            BackPropagate (input_set [i], expected_set [i]);
             UpdateWeightsAndBiases ();
-            // PrintOutput ();           
         };
 
         return costs;
     };
 
-    void BackPropagate (float input [], float expected [], float r_factor) 
+    void BackPropagate (float input [], float expected []) 
     {
-        float* y = propagate (input);
-        size_t n = dim [depth];
+        float* y = Propagate (input);
+        size_t n = dimensions [depth];
         float* g = LossGradient (y, expected, n);
 
-        // size_t input_dimension = dim [0];
-        // std::cout << std::endl << "input: ";
-        // for (int i = 0; i < input_dimension; i++) 
-        // {
-        //     std::cout << input [i] << " ";
-        // };
-        // std::cout << std::endl;
+        // Debug Console Log
+        #if DEBUG_LEVEL == 1
+        size_t input_dimension = dimensions [0];
+        std::cout << std::endl << "input: ";
+        for (int i = 0; i < input_dimension; i++) 
+        {
+            std::cout << input [i] << " ";
+        };
+        std::cout << std::endl;
 
-        // PrintOutput ();
+        PrintOutput ();
 
-        // std::cout << "expected: ";
-        // for (int i = 0; i < n; i++) 
-        // {
-        //     std::cout << expected [i] << " ";
-        // };
-        // std::cout << std::endl;
+        std::cout << "expected: ";
+        for (int i = 0; i < n; i++) 
+        {
+            std::cout << expected [i] << " ";
+        };
+        std::cout << std::endl;
+        #endif 
 
+        // Iterate throug layers and calculate gradient
         for (int i = depth - 1; i > -1; i--) 
         {
             Layer* layer = layers [i];
 
-            size_t M = layer -> size [0];
-            size_t N = layer -> size [1];
+            size_t M = layer -> size.M;
+            size_t N = layer -> size.N;
 
             activation_fn fn_prime = layer -> fn_prime;
 
-            // std::cout << "layer " << i << " activations: ";
-            // for (int j = 0; j < M; j++) 
-            // {
-            //     std::cout << layer -> activations [j] << " ";
-            // };
-            // std::cout << std::endl;
-
-            // std::cout << "layer " << i << " x:           ";
-            // for (int j = 0; j < M; j++) 
-            // {
-            //     std::cout << layer -> x [j] << " ";
-            // };
-            // std::cout << std::endl;
-
+            // Gradient of loss function with respect to the nets of layer i
             for (int j = 0; j < M; j++) 
             {
-                g [j] *= fn_prime (layer -> x [j]); //TODO: why is this setting g to 0
+                g [j] *= fn_prime (layer -> x [j]);
             };
-
-            // std::cout << "layer " << i << " g:           ";
-            // for (int j = 0; j < M; j++) 
-            // {
-            //     std::cout << g [j] << " ";
-            // };
-            // std::cout << std::endl;
 
             float b [M];
             float rgb [M];
-            RegulariserGradient_biases (layer, rgb);
+            RegulariserGradientBiases (layer, rgb);
 
             float w [M][N];
             float** rgw = new float* [M];
@@ -584,7 +583,7 @@ struct Network
                 rgw [j] = new float [N];
             };
 
-            RegulariserGradient_weights (layer, rgw);
+            RegulariserGradientWeights (layer, rgw);
 
             float* a;
             if (i > 0) 
@@ -597,37 +596,63 @@ struct Network
                 a = input;
             };
 
-            float* x = new float [N];
-
+            // Calculate gradient of loss function with respect to the weights and biases of layer i
             for (int j = 0; j < M; j++)
             {
-                b [j] = g [j] + r_factor * rgb [j];
+                b [j] = g [j] + regularisation_factor * rgb [j];
 
                 for (int k = 0; k < N; k++)
                 {
-                    w [j][k] = g [j] * a [k] + r_factor * rgw [j][k];
+                    w [j][k] = g [j] * a [k] + regularisation_factor * rgw [j][k];
                 };
             };
 
-            // std::cout << "bias gradient: ";
-            // for (int j = 0; j < M; j++) 
-            // {
-            //     std::cout << b [j] << " ";
-            // };
-            // std::cout << std::endl;
 
-            // std::cout << "weights gradient: " << std::endl;
-            // for (int j = 0; j < M; j++) 
-            // {
-            //     std::cout << "    ";
-            //     for (int k = 0; k < N; k++)
-            //     {
-            //         std::cout << w [j][k] << " ";
-            //     };
-            //     std::cout << std::endl;
-            // };
-            // std::cout << std::endl;
+            #if DEBUG_LEVEL == 1
+            std::cout << "layer " << i << " activations: ";
+            for (int j = 0; j < M; j++) 
+            {
+                std::cout << layer -> activations [j] << " ";
+            };
+            std::cout << std::endl;
 
+            std::cout << "layer " << i << " x:           ";
+            for (int j = 0; j < M; j++) 
+            {
+                std::cout << layer -> x [j] << " ";
+            };
+            std::cout << std::endl;
+
+            std::cout << "layer " << i << " g:           ";
+            for (int j = 0; j < M; j++) 
+            {
+                std::cout << g [j] << " ";
+            };
+            std::cout << std::endl;
+
+            std::cout << "bias gradient: ";
+            for (int j = 0; j < M; j++) 
+            {
+                std::cout << b [j] << " ";
+            };
+            std::cout << std::endl;
+
+            std::cout << "weights gradient: " << std::endl;
+            for (int j = 0; j < M; j++) 
+            {
+                std::cout << "    ";
+                for (int k = 0; k < N; k++)
+                {
+                    std::cout << w [j][k] << " ";
+                };
+                std::cout << std::endl;
+            };
+            std::cout << std::endl;
+            #endif
+
+
+            // Calculate gradient of loss function with respect to the activations of the previous layer (i - 1)
+            float* x = new float [N];
 
             for (int k = 0; k < N; k++)
             {
@@ -641,6 +666,7 @@ struct Network
 
             g = x;
 
+            // Store the gradients
             for (int j = 0; j < M; j++)
             {
                 bias_gradients [i][j] = b [j];
@@ -658,10 +684,9 @@ struct Network
         for (int i = 0; i < depth; i++)
         {
             Layer* layer = layers [i];
-
-            size_t* size = layer -> size;
-            size_t M = size [0];
-            size_t N = size [1];
+            
+            size_t M = layer -> size.M;
+            size_t N = layer -> size.N;
 
             for (int j = 0; j < M; j++)
             {
@@ -688,103 +713,57 @@ void test_function (float x [4], float* y)
     };
 };
 
+
 int main () 
 {
+    // Initialise Network
     size_t dimensions [] = {4, 5, 5, 4};
-    activation_fn functions [] = {reLU, reLU, reLU};
-    activation_fn derivatives [] = {step, step, step};
+    activation_fn functions [] = {ReLU, ReLU, ReLU};
+    activation_fn derivatives [] = {Step, Step, Step};
+    float reg_factor = 0.0;
+    float learn_rate = 0.01;
 
-    Network <3> network (dimensions, functions, derivatives);
-    // network.PrintOutput ();
+    Network <3> network (
+        dimensions, 
+        functions, 
+        derivatives, 
+        Identity, 
+        MeanSquaredError, 
+        MeanSquaredErrorGradient, 
+        reg_factor, 
+        learn_rate
+    );
 
-    // float input [4] = {1, 1, 1, 1};
 
-    // float* output = network.propagate (input);
-
-    // std::cout << "Output: ";
-    // for (int i = 0; i < 4; i++) 
-    // {
-    //     std::cout << output [i] << " ";
-    // };
-    // std::cout << std::endl;
-    // network.PrintAllLayers ();
-    // network.PrintOutput ();
-
-    size_t size = 16 * 10;
-    float r = 0.0;
-
-    float ones [16][4] = {
-        {0, 0, 0, 0},
-        {1, 0, 0, 0},
-        {0, 1, 0, 0},
-        {0, 0, 1, 0},
-        {0, 0, 0, 1},
-        {1, 0, 1, 0},
-        {0, 1, 0, 1},
-        {1, 0, 0, 1},
-        {1, 1, 0, 0},
-        {0, 1, 1, 0},
-        {0, 0, 1, 1},
-        {1, 1, 1, 0},
-        {1, 1, 0, 1},
-        {1, 0, 1, 1},
-        {0, 1, 1, 1},
-        {1, 1, 1, 1}
-    };
-
+    // Create Fake Test Data
+    size_t size = 1000;
+    float dummy [1000][4];
     float* input [size];
     float* expected [size];
 
-    for (int i = 0; i < 16; i++) 
-    {
-        for (int j = 0; j < 10; j++) 
-        {
-            input [i + 16 * j] = ones [i];
+    std::mt19937 generator (1000);
+    std::uniform_real_distribution <float> distribution (0.0, 1.0);
 
-            float* y = new float [4];
-            test_function (input [i + 16 * j], y);
-            expected [i + 16 * j] = y;
+    for (int i = 0; i < size; i++) 
+    {
+        for (int j = 0; j < 4; j++)
+        {
+            dummy [i][j] = distribution (generator);
         };
+
+        input [i] = dummy [i];
+
+        float* y = new float [4];
+        test_function (input [i], y);
+        expected [i] = y;
     };
 
-    // network.PrintWeights ();
 
-    // size_t size = 16;
-    // float r = 0.0;
+    // Train Network
+    float* costs = network.TrainBatch (input, expected, size);
 
-    // float ones [16][4] = {
-    //     {0, 0, 0, 0},
-    //     {1, 0, 0, 0},
-    //     {0, 1, 0, 0},
-    //     {0, 0, 1, 0},
-    //     {0, 0, 0, 1},
-    //     {1, 0, 1, 0},
-    //     {0, 1, 0, 1},
-    //     {1, 0, 0, 1},
-    //     {1, 1, 0, 0},
-    //     {0, 1, 1, 0},
-    //     {0, 0, 1, 1},
-    //     {1, 1, 1, 0},
-    //     {1, 1, 0, 1},
-    //     {1, 0, 1, 1},
-    //     {0, 1, 1, 1},
-    //     {1, 1, 1, 1}
-    // };
 
-    // float* input [size];
-    // float* expected [size];
-
-    // for (int i = 0; i < 16; i++) 
-    // {
-    //     input [i] = ones [i];
-
-    //     float* y = new float [4];
-    //     test_function (input [i], y);
-    //     expected [i] = y;
-    // };
-
-    float* costs = network.TrainBatch (input, expected, size, r);
-
+    // Process Results
     std::ofstream out;
     out.open ("losses.csv");
 
@@ -792,10 +771,7 @@ int main ()
     {
         out << costs [i] << ",";
     };
-
     out.close ();
 
     system ("python graph.py");
-
-    // TODO: COMMENTS
 };
