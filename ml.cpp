@@ -47,6 +47,11 @@ float Sigmoid (float x)
 
 };
 
+float SigmoidDerivative (float x)
+{
+    return Sigmoid (x) * (1 - Sigmoid (x));
+};
+
 float Max (float x [], size_t n)
 {
     float max = x [0];
@@ -212,7 +217,6 @@ struct Layer
 
         activations = new float [M]();
         x = new float [M]();
-        biases = new float [M];
 
         weights = new float* [M];
         weights [0] = new float [M * N];
@@ -237,10 +241,7 @@ struct Layer
 
         if (b == nullptr)
         {
-            for (int i = 0; i < M; i++)
-            {
-                biases [i] = 0.0;
-            };
+            biases = new float [M]();
         }
         else
         {
@@ -258,6 +259,9 @@ struct Layer
     {
         delete [] weights [0];
         delete [] weights;
+        delete [] x;
+        delete [] biases; // is this a problem? maybe
+        delete [] activations;
     };
 
     void SetActivations (float input [])
@@ -286,11 +290,20 @@ struct Network
 
     float regularisation_factor;
     float learning_rate;
+    const float base_learning_rate;
+    float momentum;
+    const float decay_rate;
 
     Random* r;
 
     float** weight_gradients [depth];
     float* bias_gradients [depth];
+
+    float** weight_velocities [depth];
+    float* bias_velocities [depth];
+
+    float** weight_RMSP [depth];
+    float* bias_RMSP [depth];
 
 
     // Constructor
@@ -306,7 +319,9 @@ struct Network
         loss_fn LossFunction = CrossEntropy, 
         loss_gradient LossGradient = CrossEntropyGradient,
         float regularisation_factor = 0.0,
-        float learning_rate = 0.01
+        float learning_rate = 0.1,
+        float momentum = 0.9,
+        float rms_decay_rate = 0.1
     ) 
 
         // Initialisation List
@@ -316,7 +331,10 @@ struct Network
         LossFunction (LossFunction), 
         LossGradient (LossGradient), 
         regularisation_factor (regularisation_factor),
-        learning_rate (learning_rate)
+        learning_rate (learning_rate),
+        base_learning_rate (learning_rate),
+        momentum (momentum),
+        decay_rate (rms_decay_rate)
 
     // Constructor Body
     {
@@ -331,6 +349,7 @@ struct Network
             activation_fn f = functions [i];
             activation_fn f_prime = derivatives [i];
 
+            // Initialise gradients
             float** w = new float* [M];
             for (int j = 0; j < M; j++)
             {
@@ -342,14 +361,59 @@ struct Network
             weight_gradients [i] = w;
             bias_gradients [i] = b;
 
+            // Initialise velocities
+            float** wv = new float* [M];
+            for (int j = 0; j < M; j++)
+            {
+                wv [j] = new float [N]();
+            };
+
+            float* bv = new float [M]();
+
+            weight_velocities [i] = wv;
+            bias_velocities [i] = bv;
+
+            // Initialise RMSProp accumulation variables
+            float** wrmsp = new float* [M];
+            for (int j = 0; j < M; j++)
+            {
+                wrmsp [j] = new float [N]();
+            };
+
+            float* brmsp = new float [M]();
+
+            weight_RMSP [i] = wrmsp;
+            bias_RMSP [i] = brmsp;
+
+            // Create layer
             layers [i] = new Layer (nullptr, nullptr, M, N, f, f_prime, r, i);
         };
     };
 
     ~Network ()
     {
+        delete [] output;
+        delete r;
+
         for (int i = 0; i < depth; i++)
         {
+            size_t M = dimensions [i + 1];
+
+            for (int j = 0; j < M; j++)
+            {
+                delete [] weight_gradients [i][j];
+                delete [] weight_velocities [i][j];
+            };
+
+            delete [] weight_gradients [i];
+            delete [] bias_gradients [i];
+
+            delete [] weight_velocities [i];
+            delete [] bias_velocities [i];
+
+            delete [] weight_RMSP [i];
+            delete [] bias_RMSP [i];
+
             delete layers [i];
         };
     };
@@ -513,23 +577,133 @@ struct Network
         return loss + regularisation;
     };
 
-    float* TrainBatch (float* input_set [], float* expected_set [], size_t batch_size)
+    float* GradientDescent (float* input_set [], float* expected_set [], size_t set_size)
     { 
-        float* costs = new float [batch_size];
+        float* costs = new float [set_size];
 
-        for (int i = 0; i < batch_size; i++)
+        for (int i = 0; i < set_size; i++)
         {
             float regularisation = regularisation_factor * Regulariser ();
             costs [i] = Cost (input_set [i], expected_set [i], regularisation);
 
-            BackPropagate (input_set [i], expected_set [i]);
+            BackPropagate (input_set [i], expected_set [i], false);
             UpdateWeightsAndBiases ();
         };
 
         return costs;
     };
 
-    void BackPropagate (float input [], float expected []) 
+    float* StochasticGradientDescent (float* input_set [], float* expected_set [], size_t set_size, size_t minibatch_size, int tau = 500)
+    { 
+        float* costs = new float [set_size];
+
+        int k = set_size / minibatch_size;
+        float mean_batch = (float)1 / (float)minibatch_size;
+
+        for (int i = 0; i < k; i++)
+        {
+            float alpha = (float)i / (float)tau;
+            alpha = std::min (alpha, (float)1.0);
+            learning_rate = (1 - 0.99 * alpha) * base_learning_rate;
+
+            float regularisation = regularisation_factor * Regulariser ();
+            costs [i] = Cost (input_set [i * minibatch_size], expected_set [i * minibatch_size], regularisation);
+
+            UpdateWeightsAndBiases (true, true, );
+
+            for (int j = 0; j < minibatch_size; j++)
+            {
+                BackPropagate (input_set [i * minibatch_size + j], expected_set [i * minibatch_size + j], true, (j == 0), mean_batch);
+            };
+
+            UpdateWeightsAndBiases ();
+        };
+        return costs;
+    };
+
+    float* Nesterov (float* input_set [], float* expected_set [], size_t set_size, size_t minibatch_size, int tau = 500)
+    { 
+        float* costs = new float [set_size];
+
+        int k = set_size / minibatch_size;
+        float mean_batch = (float)1 / (float)minibatch_size;
+
+        for (int i = 0; i < k; i++)
+        {
+            float alpha = (float)i / (float)tau;
+            alpha = std::min (alpha, (float)1.0);
+            learning_rate = (1 - 0.99 * alpha) * base_learning_rate;
+
+            float regularisation = regularisation_factor * Regulariser ();
+            costs [i] = Cost (input_set [i * minibatch_size], expected_set [i * minibatch_size], regularisation);
+
+            UpdateWeightsAndBiases (true, true, );
+
+            for (int j = 0; j < minibatch_size; j++)
+            {
+                BackPropagate (input_set [i * minibatch_size + j], expected_set [i * minibatch_size + j], true, (j == 0), mean_batch);
+            };
+
+            UpdateWeightsAndBiases ();
+        };
+        return costs;
+    };
+    
+    float* RMSProp (float* input_set [], float* expected_set [], size_t set_size, size_t minibatch_size, int tau = 500)
+    { 
+        float* costs = new float [set_size];
+
+        int k = set_size / minibatch_size;
+        float mean_batch = (float)1 / (float)minibatch_size;
+
+        for (int i = 0; i < k; i++)
+        {
+            float alpha = (float)i / (float)tau;
+            alpha = std::min (alpha, (float)1.0);
+            learning_rate = (1 - 0.99 * alpha) * base_learning_rate;
+
+            float regularisation = regularisation_factor * Regulariser ();
+            costs [i] = Cost (input_set [i * minibatch_size], expected_set [i * minibatch_size], regularisation);
+
+            for (int j = 0; j < minibatch_size; j++)
+            {
+                BackPropagate (input_set [i * minibatch_size + j], expected_set [i * minibatch_size + j], true, (j == 0), mean_batch);
+            };
+
+            UpdateWeightsAndBiases (true, false, true);
+        };
+        return costs;
+    };
+
+    float* NesterovRMSProp (float* input_set [], float* expected_set [], size_t set_size, size_t minibatch_size, int tau = 500)
+    { 
+        float* costs = new float [set_size];
+
+        int k = set_size / minibatch_size;
+        float mean_batch = (float)1 / (float)minibatch_size;
+
+        for (int i = 0; i < k; i++)
+        {
+            float alpha = (float)i / (float)tau;
+            alpha = std::min (alpha, (float)1.0);
+            learning_rate = (1 - 0.99 * alpha) * base_learning_rate;
+
+            float regularisation = regularisation_factor * Regulariser ();
+            costs [i] = Cost (input_set [i * minibatch_size], expected_set [i * minibatch_size], regularisation);
+
+            UpdateWeightsAndBiases (true, true, true);
+
+            for (int j = 0; j < minibatch_size; j++)
+            {
+                BackPropagate (input_set [i * minibatch_size + j], expected_set [i * minibatch_size + j], true, (j == 0), mean_batch);
+            };
+
+            UpdateWeightsAndBiases (true, false, true);
+        };
+        return costs;
+    };
+
+    void BackPropagate (float input [], float expected [], bool stochastic = true, bool reset_gradients = false, float mean_batch = 0.0) 
     {
         float* y = Propagate (input);
         size_t n = dimensions [depth];
@@ -667,20 +841,66 @@ struct Network
             g = x;
 
             // Store the gradients
-            for (int j = 0; j < M; j++)
-            {
-                bias_gradients [i][j] = b [j];
 
-                for (int k = 0; k < N; k++)
+            if (stochastic == true) 
+            {
+                if (reset_gradients == true)
                 {
-                    weight_gradients [i][j][k] = w [j][k];
+                    for (int j = 0; j < M; j++)
+                    {
+                        bias_gradients [i][j] = 0.0;
+
+                        for (int k = 0; k < N; k++)
+                        {
+                            weight_gradients [i][j][k] = 0.0;
+                        };
+                    };
+                };
+
+                for (int j = 0; j < M; j++)
+                {
+                    bias_gradients [i][j] += mean_batch * b [j];
+
+                    for (int k = 0; k < N; k++)
+                    {
+                        weight_gradients [i][j][k] += mean_batch * w [j][k];
+                    };
+                };
+            } 
+            else 
+            {
+                for (int j = 0; j < M; j++)
+                {
+                    bias_gradients [i][j] = b [j];
+
+                    for (int k = 0; k < N; k++)
+                    {
+                        weight_gradients [i][j][k] = w [j][k];
+                    };
                 };
             };
         };
     };
 
-    void UpdateWeightsAndBiases () 
+    void UpdateWeightsAndBiases (bool stochastic = true, bool interim = false, bool rms = true) 
     { 
+        float alpha;
+        float v_update;
+
+        if (interim)
+        {
+            alpha = momentum;
+        }
+        else 
+        {
+            alpha = 1;
+        };
+
+        if (!rms)
+        {
+            v_update = learning_rate;
+        };
+
         for (int i = 0; i < depth; i++)
         {
             Layer* layer = layers [i];
@@ -688,18 +908,49 @@ struct Network
             size_t M = layer -> size.M;
             size_t N = layer -> size.N;
 
-            for (int j = 0; j < M; j++)
+            if (!interim && stochastic)
             {
-                layer -> biases [j] -= learning_rate * bias_gradients [i][j];
-
-                for (int k = 0; k < N; k++)
+                for (int j = 0; j < M; j++)
                 {
-                    layer -> weights [j][k] -= learning_rate * weight_gradients [i][j][k];
+                    bias_RMSP [i][j] = decay_rate * bias_RMSP [i][j] + (1 - decay_rate) * pow (bias_gradients [i][j], 2);
+                    v_update = learning_rate / sqrt (bias_RMSP [i][j]);
+                    bias_velocities [i][j] = momentum * bias_velocities [i][j] - v_update * bias_gradients [i][j];
+
+                    for (int k = 0; k < N; k++)
+                    {
+                        weight_RMSP [i][j][k] = decay_rate * weight_RMSP [i][j][k] + (1 - decay_rate) * pow (weight_gradients [i][j][k], 2);
+                        v_update = learning_rate / sqrt (weight_RMSP [i][j][k]);
+                        weight_velocities [i][j][k] = momentum * weight_velocities [i][j][k] - v_update * weight_gradients [i][j][k];
+                    };
+                };
+            };
+
+            if (velocity)
+            {
+                for (int j = 0; j < M; j++)
+                {
+                    layer -> biases [j] += alpha * bias_velocities [i][j];
+
+                    for (int k = 0; k < N; k++)
+                    {
+                        layer -> weights [j][k] += alpha * weight_velocities [i][j][k];
+                    };
+                };
+            } 
+            else 
+            {
+                for (int j = 0; j < M; j++)
+                {
+                    layer -> biases [j] = bias_gradients [i][j];
+
+                    for (int k = 0; k < N; k++)
+                    {
+                        layer -> weights [j][k] = weight_gradients [i][j][k];
+                    };
                 };
             };
         };
-    };
-    
+    };    
 };
 
 
@@ -717,11 +968,13 @@ void test_function (float x [4], float* y)
 int main () 
 {
     // Initialise Network
-    size_t dimensions [] = {4, 5, 5, 4};
+    size_t dimensions [] = {4, 20, 20, 4};
     activation_fn functions [] = {ReLU, ReLU, ReLU};
     activation_fn derivatives [] = {Step, Step, Step};
-    float reg_factor = 0.0;
-    float learn_rate = 0.01;
+    float reg_factor = 0.5;
+    float learn_rate = 1;
+    float momentum = 0.5;
+    float rms_decay_rate = 0.5;
 
     Network <3> network (
         dimensions, 
@@ -731,13 +984,16 @@ int main ()
         MeanSquaredError, 
         MeanSquaredErrorGradient, 
         reg_factor, 
-        learn_rate
+        learn_rate,
+        momentum,
+        rms_decay_rate
     );
 
 
     // Create Fake Test Data
-    size_t size = 1000;
-    float dummy [1000][4];
+    size_t size = 10000;
+    size_t batch_size = 10;
+    float dummy [10000][4];
     float* input [size];
     float* expected [size];
 
@@ -760,14 +1016,18 @@ int main ()
 
 
     // Train Network
-    float* costs = network.TrainBatch (input, expected, size);
+    // float* costs = network.GradientDescent (input, expected, size);
+    float* costs = network.StochasticGradientDescent (input, expected, size, batch_size);
 
 
     // Process Results
     std::ofstream out;
     out.open ("losses.csv");
 
-    for (int i = 0; i < size; i++) 
+    // int num_costs = size;
+    int num_costs = size / batch_size;
+
+    for (int i = 0; i < num_costs; i++) 
     {
         out << costs [i] << ",";
     };
@@ -777,5 +1037,4 @@ int main ()
 };
 
 // TODO: improve python graphing
-// TODO: add scaling learning rate
-// TODO: test regularisation
+// TODO: Data oriented refactor - remove branching, hidden state etc
