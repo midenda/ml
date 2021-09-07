@@ -291,6 +291,7 @@ struct Network
     float regularisation_factor;
     float learning_rate;
     const float base_learning_rate;
+    const float learning_rate_time_constant;
     float momentum;
     const float decay_rate;
 
@@ -320,6 +321,7 @@ struct Network
         loss_gradient LossGradient = CrossEntropyGradient,
         float regularisation_factor = 0.0,
         float learning_rate = 0.1,
+        float learning_rate_time_constant = 200,
         float momentum = 0.9,
         float rms_decay_rate = 0.1
     ) 
@@ -333,6 +335,7 @@ struct Network
         regularisation_factor (regularisation_factor),
         learning_rate (learning_rate),
         base_learning_rate (learning_rate),
+        learning_rate_time_constant (learning_rate_time_constant),
         momentum (momentum),
         decay_rate (rms_decay_rate)
 
@@ -510,6 +513,31 @@ struct Network
         std::cout << std::endl << std::endl;
     };
 
+    void test (float* input_set [], float* expected_set [], size_t set_size) 
+    {
+        size_t input_dimension = dimensions [0];
+        size_t output_dimension = dimensions [depth];
+
+        for (int i = 0; i < set_size; i++)
+        {
+            std::cout << std::endl << "input: ";
+            for (int j = 0; j < input_dimension; j++) 
+            {
+                std::cout << input_set [i][j] << " ";
+            };
+            std::cout << std::endl;
+
+            PrintOutput ();
+
+            std::cout << "expected: ";
+            for (int j = 0; j < output_dimension; j++) 
+            {
+                std::cout << expected_set [i][j] << " ";
+            };
+            std::cout << std::endl;
+        };
+    };
+
     float Regulariser () 
     {
         // float bias_sum = 0.0;
@@ -540,27 +568,19 @@ struct Network
         return weight_sum;
     };
 
-    void RegulariserGradientBiases (Layer* layer, float* b) 
+    void SetRegulariserGradients (Layer* layer, float* b, float** w) 
     {
-        // float* biases = layer -> biases;
         size_t M = layer -> size.M;
+        size_t N = layer -> size.N;
+
+        // float* biases = layer -> biases;
+        float** weights = layer -> weights;
 
         for (int i = 0; i < M; i++)
         {
             // b [i] = 2 * biases [i];
             b [i] = 0;
-        };
-    };
 
-    void RegulariserGradientWeights (Layer* layer, float** w) 
-    {
-        float** weights = layer -> weights;
-
-        size_t M = layer -> size.M;
-        size_t N = layer -> size.N;
-
-        for (int i = 0; i < M; i++)
-        {
             for (int j = 0; j < N; j++)
             {
                 w [i][j] = 2 * weights [i][j];
@@ -568,32 +588,40 @@ struct Network
         };
     };
 
-    float Cost (float input [], float expected [], float regularisation = 0.0) 
+    float Cost (float input [], float expected []) 
     {
         float* output = Propagate (input);
         size_t n = dimensions [depth];
         float loss = LossFunction (output, expected, n);
 
-        return loss + regularisation;
+        return loss + regularisation_factor * Regulariser ();
     };
 
-    float* GradientDescent (float* input_set [], float* expected_set [], size_t set_size)
+    void UpdateLearningRate (int i)
+    {
+        float alpha = (float)i / (float)learning_rate_time_constant;
+        alpha = std::min (alpha, (float)1.0);
+        learning_rate = (1 - 0.99 * alpha) * base_learning_rate;
+    };
+
+    float* GD_Basic (float* input_set [], float* expected_set [], size_t set_size)
     { 
         float* costs = new float [set_size];
 
         for (int i = 0; i < set_size; i++)
         {
-            float regularisation = regularisation_factor * Regulariser ();
-            costs [i] = Cost (input_set [i], expected_set [i], regularisation);
+            UpdateLearningRate (i);
+
+            costs [i] = Cost (input_set [i], expected_set [i]);
 
             BackPropagate (input_set [i], expected_set [i], false);
-            UpdateWeightsAndBiases ();
+            UpdateGradientDescent ();
         };
 
         return costs;
     };
 
-    float* StochasticGradientDescent (float* input_set [], float* expected_set [], size_t set_size, size_t minibatch_size, int tau = 500)
+    float* GD_Stochastic (float* input_set [], float* expected_set [], size_t set_size, size_t minibatch_size)
     { 
         float* costs = new float [set_size];
 
@@ -602,26 +630,23 @@ struct Network
 
         for (int i = 0; i < k; i++)
         {
-            float alpha = (float)i / (float)tau;
-            alpha = std::min (alpha, (float)1.0);
-            learning_rate = (1 - 0.99 * alpha) * base_learning_rate;
+            UpdateLearningRate (i);
 
-            float regularisation = regularisation_factor * Regulariser ();
-            costs [i] = Cost (input_set [i * minibatch_size], expected_set [i * minibatch_size], regularisation);
+            costs [i] = Cost (input_set [i * minibatch_size], expected_set [i * minibatch_size]);
 
-            UpdateWeightsAndBiases (true, true, );
+            ResetGradients ();
 
             for (int j = 0; j < minibatch_size; j++)
             {
-                BackPropagate (input_set [i * minibatch_size + j], expected_set [i * minibatch_size + j], true, (j == 0), mean_batch);
+                BackPropagateStochastic (input_set [i * minibatch_size + j], expected_set [i * minibatch_size + j], mean_batch);
             };
 
-            UpdateWeightsAndBiases ();
+            UpdateGradientDescent ();
         };
         return costs;
     };
 
-    float* Nesterov (float* input_set [], float* expected_set [], size_t set_size, size_t minibatch_size, int tau = 500)
+    float* GD_StochasticMomentum (float* input_set [], float* expected_set [], size_t set_size, size_t minibatch_size)
     { 
         float* costs = new float [set_size];
 
@@ -630,26 +655,23 @@ struct Network
 
         for (int i = 0; i < k; i++)
         {
-            float alpha = (float)i / (float)tau;
-            alpha = std::min (alpha, (float)1.0);
-            learning_rate = (1 - 0.99 * alpha) * base_learning_rate;
+            UpdateLearningRate (i);
 
-            float regularisation = regularisation_factor * Regulariser ();
-            costs [i] = Cost (input_set [i * minibatch_size], expected_set [i * minibatch_size], regularisation);
+            costs [i] = Cost (input_set [i * minibatch_size], expected_set [i * minibatch_size]);
 
-            UpdateWeightsAndBiases (true, true, );
+            ResetGradients ();
 
             for (int j = 0; j < minibatch_size; j++)
             {
-                BackPropagate (input_set [i * minibatch_size + j], expected_set [i * minibatch_size + j], true, (j == 0), mean_batch);
+                BackPropagateStochastic (input_set [i * minibatch_size + j], expected_set [i * minibatch_size + j], mean_batch);
             };
 
-            UpdateWeightsAndBiases ();
+            UpdateMomentum ();
         };
         return costs;
     };
-    
-    float* RMSProp (float* input_set [], float* expected_set [], size_t set_size, size_t minibatch_size, int tau = 500)
+
+    float* GD_StochasticNesterov (float* input_set [], float* expected_set [], size_t set_size, size_t minibatch_size)
     { 
         float* costs = new float [set_size];
 
@@ -658,24 +680,25 @@ struct Network
 
         for (int i = 0; i < k; i++)
         {
-            float alpha = (float)i / (float)tau;
-            alpha = std::min (alpha, (float)1.0);
-            learning_rate = (1 - 0.99 * alpha) * base_learning_rate;
+            UpdateLearningRate (i);
 
-            float regularisation = regularisation_factor * Regulariser ();
-            costs [i] = Cost (input_set [i * minibatch_size], expected_set [i * minibatch_size], regularisation);
+            costs [i] = Cost (input_set [i * minibatch_size], expected_set [i * minibatch_size]);
+
+            UpdateInterim ();
+
+            ResetGradients ();
 
             for (int j = 0; j < minibatch_size; j++)
             {
-                BackPropagate (input_set [i * minibatch_size + j], expected_set [i * minibatch_size + j], true, (j == 0), mean_batch);
+                BackPropagateStochastic (input_set [i * minibatch_size + j], expected_set [i * minibatch_size + j], mean_batch);
             };
 
-            UpdateWeightsAndBiases (true, false, true);
+            UpdateMomentum ();
         };
         return costs;
     };
 
-    float* NesterovRMSProp (float* input_set [], float* expected_set [], size_t set_size, size_t minibatch_size, int tau = 500)
+    float* GD_RMSProp (float* input_set [], float* expected_set [], size_t set_size, size_t minibatch_size)
     { 
         float* costs = new float [set_size];
 
@@ -684,50 +707,73 @@ struct Network
 
         for (int i = 0; i < k; i++)
         {
-            float alpha = (float)i / (float)tau;
-            alpha = std::min (alpha, (float)1.0);
-            learning_rate = (1 - 0.99 * alpha) * base_learning_rate;
+            UpdateLearningRate (i);
 
-            float regularisation = regularisation_factor * Regulariser ();
-            costs [i] = Cost (input_set [i * minibatch_size], expected_set [i * minibatch_size], regularisation);
+            costs [i] = Cost (input_set [i * minibatch_size], expected_set [i * minibatch_size]);
 
-            UpdateWeightsAndBiases (true, true, true);
+            ResetGradients ();
 
             for (int j = 0; j < minibatch_size; j++)
             {
-                BackPropagate (input_set [i * minibatch_size + j], expected_set [i * minibatch_size + j], true, (j == 0), mean_batch);
+                BackPropagateStochastic (input_set [i * minibatch_size + j], expected_set [i * minibatch_size + j], mean_batch);
             };
 
-            UpdateWeightsAndBiases (true, false, true);
+            UpdateRMSProp ();
         };
         return costs;
     };
 
-    void BackPropagate (float input [], float expected [], bool stochastic = true, bool reset_gradients = false, float mean_batch = 0.0) 
+    float* GD_RMSPropNesterov (float* input_set [], float* expected_set [], size_t set_size, size_t minibatch_size)
+    { 
+        float* costs = new float [set_size];
+
+        int k = set_size / minibatch_size;
+        float mean_batch = (float)1 / (float)minibatch_size;
+
+        for (int i = 0; i < k; i++)
+        {
+            UpdateLearningRate (i);
+
+            costs [i] = Cost (input_set [i * minibatch_size], expected_set [i * minibatch_size]);
+
+            UpdateInterim ();
+
+            ResetGradients ();
+
+            for (int j = 0; j < minibatch_size; j++)
+            {
+                BackPropagateStochastic (input_set [i * minibatch_size + j], expected_set [i * minibatch_size + j], mean_batch);
+            };
+
+            UpdateNesterovRMSProp ();
+        };
+        return costs;
+    };
+
+    void ResetGradients ()
+    {
+        for (int i = 0; i < depth; i++)
+        {
+            size_t M = dimensions [i + 1];
+            size_t N = dimensions [i];
+
+            for (int j = 0; j < M; j++)
+            {
+                bias_gradients [i][j] = 0.0;
+
+                for (int k = 0; k < N; k++)
+                {
+                    weight_gradients [i][j][k] = 0.0;
+                };
+            };
+        };
+    };
+
+    void BackPropagate (float input [], float expected []) 
     {
         float* y = Propagate (input);
         size_t n = dimensions [depth];
         float* g = LossGradient (y, expected, n);
-
-        // Debug Console Log
-        #if DEBUG_LEVEL == 1
-        size_t input_dimension = dimensions [0];
-        std::cout << std::endl << "input: ";
-        for (int i = 0; i < input_dimension; i++) 
-        {
-            std::cout << input [i] << " ";
-        };
-        std::cout << std::endl;
-
-        PrintOutput ();
-
-        std::cout << "expected: ";
-        for (int i = 0; i < n; i++) 
-        {
-            std::cout << expected [i] << " ";
-        };
-        std::cout << std::endl;
-        #endif 
 
         // Iterate throug layers and calculate gradient
         for (int i = depth - 1; i > -1; i--) 
@@ -745,26 +791,26 @@ struct Network
                 g [j] *= fn_prime (layer -> x [j]);
             };
 
+            // Prepare some memory
             float b [M];
-            float rgb [M];
-            RegulariserGradientBiases (layer, rgb);
-
             float w [M][N];
-            float** rgw = new float* [M];
 
+            float rgb [M];
+            float** rgw = new float* [M];
             for (int j = 0; j < M; j++)
             {
                 rgw [j] = new float [N];
             };
 
-            RegulariserGradientWeights (layer, rgw);
+            // Calculate gradients from regulariser
+            SetRegulariserGradients (layer, rgb, rgw);
 
+            // Fetch activations of preivous layer
             float* a;
             if (i > 0) 
             {
                 a = layers [i - 1] -> activations;
             }
-
             else 
             {
                 a = input;
@@ -780,50 +826,6 @@ struct Network
                     w [j][k] = g [j] * a [k] + regularisation_factor * rgw [j][k];
                 };
             };
-
-
-            #if DEBUG_LEVEL == 1
-            std::cout << "layer " << i << " activations: ";
-            for (int j = 0; j < M; j++) 
-            {
-                std::cout << layer -> activations [j] << " ";
-            };
-            std::cout << std::endl;
-
-            std::cout << "layer " << i << " x:           ";
-            for (int j = 0; j < M; j++) 
-            {
-                std::cout << layer -> x [j] << " ";
-            };
-            std::cout << std::endl;
-
-            std::cout << "layer " << i << " g:           ";
-            for (int j = 0; j < M; j++) 
-            {
-                std::cout << g [j] << " ";
-            };
-            std::cout << std::endl;
-
-            std::cout << "bias gradient: ";
-            for (int j = 0; j < M; j++) 
-            {
-                std::cout << b [j] << " ";
-            };
-            std::cout << std::endl;
-
-            std::cout << "weights gradient: " << std::endl;
-            for (int j = 0; j < M; j++) 
-            {
-                std::cout << "    ";
-                for (int k = 0; k < N; k++)
-                {
-                    std::cout << w [j][k] << " ";
-                };
-                std::cout << std::endl;
-            };
-            std::cout << std::endl;
-            #endif
-
 
             // Calculate gradient of loss function with respect to the activations of the previous layer (i - 1)
             float* x = new float [N];
@@ -841,65 +843,185 @@ struct Network
             g = x;
 
             // Store the gradients
-
-            if (stochastic == true) 
+            for (int j = 0; j < M; j++)
             {
-                if (reset_gradients == true)
+                bias_gradients [i][j] = b [j];
+
+                for (int k = 0; k < N; k++)
                 {
-                    for (int j = 0; j < M; j++)
-                    {
-                        bias_gradients [i][j] = 0.0;
-
-                        for (int k = 0; k < N; k++)
-                        {
-                            weight_gradients [i][j][k] = 0.0;
-                        };
-                    };
-                };
-
-                for (int j = 0; j < M; j++)
-                {
-                    bias_gradients [i][j] += mean_batch * b [j];
-
-                    for (int k = 0; k < N; k++)
-                    {
-                        weight_gradients [i][j][k] += mean_batch * w [j][k];
-                    };
-                };
-            } 
-            else 
-            {
-                for (int j = 0; j < M; j++)
-                {
-                    bias_gradients [i][j] = b [j];
-
-                    for (int k = 0; k < N; k++)
-                    {
-                        weight_gradients [i][j][k] = w [j][k];
-                    };
+                    weight_gradients [i][j][k] = w [j][k];
                 };
             };
         };
     };
 
-    void UpdateWeightsAndBiases (bool stochastic = true, bool interim = false, bool rms = true) 
+    void BackPropagateStochastic (float input [], float expected [], float mean_batch = 0.0) 
+    {
+        float* y = Propagate (input);
+        size_t n = dimensions [depth];
+        float* g = LossGradient (y, expected, n);
+
+        // Iterate throug layers and calculate gradient
+        for (int i = depth - 1; i > -1; i--) 
+        {
+            Layer* layer = layers [i];
+
+            size_t M = layer -> size.M;
+            size_t N = layer -> size.N;
+
+            activation_fn fn_prime = layer -> fn_prime;
+
+            // Gradient of loss function with respect to the nets of layer i
+            for (int j = 0; j < M; j++) 
+            {
+                g [j] *= fn_prime (layer -> x [j]);
+            };
+
+            // Prepare some memory
+            float b [M];
+            float w [M][N];
+
+            float rgb [M];
+            float** rgw = new float* [M];
+            for (int j = 0; j < M; j++)
+            {
+                rgw [j] = new float [N];
+            };
+
+            // Calculate gradients from regulariser
+            SetRegulariserGradients (layer, rgb, rgw);
+
+            // Fetch activations of preivous layer
+            float* a;
+            if (i > 0) 
+            {
+                a = layers [i - 1] -> activations;
+            }
+            else 
+            {
+                a = input;
+            };
+
+            // Calculate gradient of loss function with respect to the weights and biases of layer i
+            for (int j = 0; j < M; j++)
+            {
+                b [j] = g [j] + regularisation_factor * rgb [j];
+
+                for (int k = 0; k < N; k++)
+                {
+                    w [j][k] = g [j] * a [k] + regularisation_factor * rgw [j][k];
+                };
+            };
+
+            // Calculate gradient of loss function with respect to the activations of the previous layer (i - 1)
+            float* x = new float [N];
+
+            for (int k = 0; k < N; k++)
+            {
+                x [k] = 0.0;
+
+                for (int j = 0; j < M; j++)
+                {
+                    x [k] += g [j] * layer -> weights [j][k];
+                };
+            };
+
+            g = x;
+
+            // Store the gradients
+            for (int j = 0; j < M; j++)
+            {
+                bias_gradients [i][j] += mean_batch * b [j];
+
+                for (int k = 0; k < N; k++)
+                {
+                    weight_gradients [i][j][k] += mean_batch * w [j][k];
+                };
+            };
+        };
+    };
+
+
+    void UpdateGradientDescent () 
     { 
-        float alpha;
-        float v_update;
+        for (int i = 0; i < depth; i++)
+        {
+            Layer* layer = layers [i];
+            
+            size_t M = layer -> size.M;
+            size_t N = layer -> size.N;
 
-        if (interim)
-        {
-            alpha = momentum;
-        }
-        else 
-        {
-            alpha = 1;
-        };
+            // Update parameters
+            for (int j = 0; j < M; j++)
+            {
+                layer -> biases [j] -= learning_rate * bias_gradients [i][j];
 
-        if (!rms)
-        {
-            v_update = learning_rate;
+                for (int k = 0; k < N; k++)
+                {
+                    layer -> weights [j][k] -= learning_rate * weight_gradients [i][j][k];
+                };
+            };
         };
+    };   
+
+    void UpdateMomentum () 
+    { 
+        for (int i = 0; i < depth; i++)
+        {
+            Layer* layer = layers [i];
+            
+            size_t M = layer -> size.M;
+            size_t N = layer -> size.N;
+
+            // Update velocities
+            for (int j = 0; j < M; j++)
+            {
+                bias_velocities [i][j] = momentum * bias_velocities [i][j] - learning_rate * bias_gradients [i][j];
+
+                for (int k = 0; k < N; k++)
+                {
+                    weight_velocities [i][j][k] = momentum * weight_velocities [i][j][k] - learning_rate * weight_gradients [i][j][k];
+                };
+            };
+
+            // Update parameters
+            for (int j = 0; j < M; j++)
+            {
+                layer -> biases [j] += bias_velocities [i][j];
+
+                for (int k = 0; k < N; k++)
+                {
+                    layer -> weights [j][k] += weight_velocities [i][j][k];
+                };
+            };
+        };
+    }; 
+
+    void UpdateInterim () 
+    { 
+        for (int i = 0; i < depth; i++)
+        {
+            Layer* layer = layers [i];
+            
+            size_t M = layer -> size.M;
+            size_t N = layer -> size.N;
+
+            // Update parameters
+            for (int j = 0; j < M; j++)
+            {
+                layer -> biases [j] += momentum * bias_velocities [i][j];
+
+                for (int k = 0; k < N; k++)
+                {
+                    layer -> weights [j][k] += momentum * weight_velocities [i][j][k];
+                };
+            };
+        };
+    };   
+
+    void UpdateRMSProp () 
+    {
+        float stabiliser = 0.000001;
 
         for (int i = 0; i < depth; i++)
         {
@@ -908,49 +1030,65 @@ struct Network
             size_t M = layer -> size.M;
             size_t N = layer -> size.N;
 
-            if (!interim && stochastic)
+            // Update RMSP
+            for (int j = 0; j < M; j++)
             {
-                for (int j = 0; j < M; j++)
-                {
-                    bias_RMSP [i][j] = decay_rate * bias_RMSP [i][j] + (1 - decay_rate) * pow (bias_gradients [i][j], 2);
-                    v_update = learning_rate / sqrt (bias_RMSP [i][j]);
-                    bias_velocities [i][j] = momentum * bias_velocities [i][j] - v_update * bias_gradients [i][j];
+                bias_RMSP [i][j] = decay_rate * bias_RMSP [i][j] + (1 - decay_rate) * pow (bias_gradients [i][j], 2);
 
-                    for (int k = 0; k < N; k++)
-                    {
-                        weight_RMSP [i][j][k] = decay_rate * weight_RMSP [i][j][k] + (1 - decay_rate) * pow (weight_gradients [i][j][k], 2);
-                        v_update = learning_rate / sqrt (weight_RMSP [i][j][k]);
-                        weight_velocities [i][j][k] = momentum * weight_velocities [i][j][k] - v_update * weight_gradients [i][j][k];
-                    };
+                for (int k = 0; k < N; k++)
+                {
+                    weight_RMSP [i][j][k] = decay_rate * weight_RMSP [i][j][k] + (1 - decay_rate) * pow (weight_gradients [i][j][k], 2);
                 };
             };
 
-            if (velocity)
+            // Update parameters
+            for (int j = 0; j < M; j++)
             {
-                for (int j = 0; j < M; j++)
-                {
-                    layer -> biases [j] += alpha * bias_velocities [i][j];
+                layer -> biases [j] -= learning_rate * bias_gradients [i][j] / sqrt (stabiliser + bias_RMSP [i][j]);
 
-                    for (int k = 0; k < N; k++)
-                    {
-                        layer -> weights [j][k] += alpha * weight_velocities [i][j][k];
-                    };
-                };
-            } 
-            else 
-            {
-                for (int j = 0; j < M; j++)
+                for (int k = 0; k < N; k++)
                 {
-                    layer -> biases [j] = bias_gradients [i][j];
-
-                    for (int k = 0; k < N; k++)
-                    {
-                        layer -> weights [j][k] = weight_gradients [i][j][k];
-                    };
+                    layer -> weights [j][k] -= learning_rate * weight_gradients [i][j][k] / sqrt (stabiliser + weight_RMSP [i][j][k]);
                 };
             };
         };
-    };    
+    }; 
+
+    void UpdateNesterovRMSProp (bool stochastic = true, bool interim = false, bool rms = true) 
+    { 
+        for (int i = 0; i < depth; i++)
+        {
+            Layer* layer = layers [i];
+            
+            size_t M = layer -> size.M;
+            size_t N = layer -> size.N;
+
+            // Update RMSP and velocities
+            for (int j = 0; j < M; j++)
+            {
+                bias_RMSP [i][j] = decay_rate * bias_RMSP [i][j] + (1 - decay_rate) * pow (bias_gradients [i][j], 2);
+                bias_velocities [i][j] = momentum * bias_velocities [i][j] - learning_rate * bias_gradients [i][j] / sqrt (bias_RMSP [i][j]);
+
+                for (int k = 0; k < N; k++)
+                {
+                    weight_RMSP [i][j][k] = decay_rate * weight_RMSP [i][j][k] + (1 - decay_rate) * pow (weight_gradients [i][j][k], 2);
+                    weight_velocities [i][j][k] = momentum * weight_velocities [i][j][k] - learning_rate  * weight_gradients [i][j][k] / sqrt (weight_RMSP [i][j][k]);
+                };
+            };
+
+            // Update parameters
+            for (int j = 0; j < M; j++)
+            {
+                layer -> biases [j] += bias_velocities [i][j];
+
+                for (int k = 0; k < N; k++)
+                {
+                    layer -> weights [j][k] += weight_velocities [i][j][k];
+                };
+            };
+
+        };
+    }; 
 };
 
 
@@ -972,7 +1110,8 @@ int main ()
     activation_fn functions [] = {ReLU, ReLU, ReLU};
     activation_fn derivatives [] = {Step, Step, Step};
     float reg_factor = 0.5;
-    float learn_rate = 1;
+    float learn_rate = 0.1;
+    float learn_rate_time_constant = 300;
     float momentum = 0.5;
     float rms_decay_rate = 0.5;
 
@@ -985,6 +1124,7 @@ int main ()
         MeanSquaredErrorGradient, 
         reg_factor, 
         learn_rate,
+        learn_rate_time_constant,
         momentum,
         rms_decay_rate
     );
@@ -1016,9 +1156,12 @@ int main ()
 
 
     // Train Network
-    // float* costs = network.GradientDescent (input, expected, size);
-    float* costs = network.StochasticGradientDescent (input, expected, size, batch_size);
-
+    // float* costs = network.GD_Basic (input, expected, size);
+    // float* costs = network.GD_Stochastic (input, expected, size, batch_size);
+    // float* costs = network.GD_StochasticMomentum (input, expected, size, batch_size);
+    // float* costs = network.GD_StochasticNesterov (input, expected, size, batch_size);
+    // float* costs = network.GD_RMSProp (input, expected, size, batch_size);
+    float* costs = network.GD_RMSPropNesterov (input, expected, size, batch_size);
 
     // Process Results
     std::ofstream out;
@@ -1037,4 +1180,5 @@ int main ()
 };
 
 // TODO: improve python graphing
+
 // TODO: Data oriented refactor - remove branching, hidden state etc
