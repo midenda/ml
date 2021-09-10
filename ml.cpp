@@ -398,7 +398,7 @@ struct Network
             bias_RMSP [i] = brmsp;
 
             // Create layer
-            layers [i] = new Layer (nullptr, nullptr, M, N, f, f_prime, r, i);
+            layers [i] = new Layer <depth> (nullptr, nullptr, M, N, f, f_prime, r, i);
         };
     };
 
