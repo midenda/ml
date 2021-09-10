@@ -30,6 +30,8 @@ figure, axis = plt.subplots (1, 1, gridspec_kw = {
 
 plt.scatter (x, y, s = 50, label = "Loss", marker = ".", color = (0, 0, 0), linewidth = 1)
 # plt.yticks (yticks, [str (tick) for tick in yticks])
+
+# if (max (y) / min (y)) > 500:
 plt.yscale ("log")
 
 axis.set_ylabel ("$ Loss $", fontsize = 11)

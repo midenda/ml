@@ -3,8 +3,9 @@
 #include <cmath>
 #include <iostream>
 #include <fstream>
-#include <random>
+#include <random> 
 #include <functional>
+#include <algorithm> // std::shuffle
 
 typedef float (*activation_fn) (float);
 typedef float* (*output_fn) (float[], size_t);
@@ -161,20 +162,21 @@ float* CrossEntropyGradient (float output [], float expected [], size_t n)
     return g;
 };
 
+template <size_t depth>
 struct Random 
 {
     std::random_device rd;
     std::mt19937 generator;
-    std::normal_distribution <float> distribution [];
+    std::normal_distribution <float> distribution [depth];
 
-    Random (size_t dim [], size_t depth) : generator (rd ()) 
+    Random (size_t dim []) : generator (rd ()) 
     {
         for (int i = 0; i < depth; i++)
         {
             distribution [i] = std::normal_distribution <float> (0.0, ((float)1) / (float)(dim [i]));
         };
     };
-    Random (size_t dim [], size_t depth, int seed) : generator (seed) 
+    Random (size_t dim [], int seed) : generator (seed) 
     {
         for (int i = 0; i < depth; i++)
         {
@@ -189,6 +191,7 @@ struct Random
 };
 
 
+template <size_t depth>
 struct Layer
 {
     float** weights;
@@ -208,7 +211,7 @@ struct Layer
         float** p, float* b, 
         size_t M, size_t N, 
         activation_fn f, activation_fn f_prime, 
-        Random* r, int layer_depth
+        Random<depth>* r, int layer_depth
     ) 
         : fn (f), fn_prime (f_prime)
     {
@@ -280,7 +283,7 @@ struct Layer
 template <size_t depth>
 struct Network 
 {
-    Layer* layers [depth];
+    Layer <depth>* layers [depth];
     size_t* dimensions;
     float* output;
 
@@ -288,14 +291,16 @@ struct Network
     loss_fn LossFunction;
     loss_gradient LossGradient;
 
-    float regularisation_factor;
+    const float regularisation_factor;
     float learning_rate;
     const float base_learning_rate;
     const float learning_rate_time_constant;
     float momentum;
     const float decay_rate;
+    const int epochs;
 
-    Random* r;
+    Random <depth>* r;
+    const int seed;
 
     float** weight_gradients [depth];
     float* bias_gradients [depth];
@@ -323,7 +328,9 @@ struct Network
         float learning_rate = 0.1,
         float learning_rate_time_constant = 200,
         float momentum = 0.9,
-        float rms_decay_rate = 0.1
+        float rms_decay_rate = 0.1,
+        int epochs = 1,
+        int seed = 1000
     ) 
 
         // Initialisation List
@@ -337,12 +344,14 @@ struct Network
         base_learning_rate (learning_rate),
         learning_rate_time_constant (learning_rate_time_constant),
         momentum (momentum),
-        decay_rate (rms_decay_rate)
+        decay_rate (rms_decay_rate),
+        epochs (epochs),
+        seed (seed)
 
     // Constructor Body
     {
         output = new float [dimensions [depth]];
-        r = new Random (dimensions, depth, 1000);
+        r = new Random <depth> (dimensions, 1000);
 
         for (int i = 0; i < depth; i++) 
         {
@@ -406,6 +415,7 @@ struct Network
             {
                 delete [] weight_gradients [i][j];
                 delete [] weight_velocities [i][j];
+                delete [] weight_RMSP [i][j];
             };
 
             delete [] weight_gradients [i];
@@ -425,13 +435,13 @@ struct Network
     {
         for (int i = 0; i < depth; i++) 
         {
-            Layer* l = layers [i];
+            Layer <depth>* l = layers [i];
             l -> SetActivations (input);
 
             input = l -> activations;
         };
 
-        Layer* l = layers [depth - 1];
+        Layer <depth>* l = layers [depth - 1];
         size_t M = l -> size.M;
         float* x = OutputFunction (l -> activations, M);
 
@@ -443,7 +453,7 @@ struct Network
         return output;
     };
 
-    void PrintLayer (Layer* l) 
+    void PrintLayer (Layer <depth>* l) 
     {
         if (l == nullptr)
         {
@@ -484,7 +494,7 @@ struct Network
     {
         for (int i = 0; i < depth; i++)
         {
-            Layer* layer = layers [i];
+            Layer <depth>* layer = layers [i];
 
             size_t M = layer -> size.M;
             size_t N = layer -> size.N;
@@ -545,7 +555,7 @@ struct Network
 
         for (int i = 0; i < depth; i++)
         {
-            Layer* layer = layers [i];
+            Layer <depth>* layer = layers [i];
             float** w = layer -> weights;
             // float* b = layer -> biases;
             
@@ -568,7 +578,7 @@ struct Network
         return weight_sum;
     };
 
-    void SetRegulariserGradients (Layer* layer, float* b, float** w) 
+    void SetRegulariserGradients (Layer <depth>* layer, float* b, float** w) 
     {
         size_t M = layer -> size.M;
         size_t N = layer -> size.N;
@@ -604,44 +614,66 @@ struct Network
         learning_rate = (1 - 0.99 * alpha) * base_learning_rate;
     };
 
-    float* GD_Basic (float* input_set [], float* expected_set [], size_t set_size)
+    float* GD_Basic (float* input_set [], float* expected_set [], size_t set_size, int seed = 1000)
     { 
-        float* costs = new float [set_size];
+        float* costs = new float [set_size * epochs];
 
+        int indices [set_size];
         for (int i = 0; i < set_size; i++)
         {
-            UpdateLearningRate (i);
-
-            costs [i] = Cost (input_set [i], expected_set [i]);
-
-            BackPropagate (input_set [i], expected_set [i], false);
-            UpdateGradientDescent ();
+            indices [i] = i;
         };
 
+        for (int i = 0; i < epochs; i++)
+        {
+            shuffle (indices, indices + set_size, std::mt19937 (seed));
+
+            for (int j = 0; j < set_size; j++)
+            {
+                UpdateLearningRate (j);
+
+                int a = indices [j];
+
+                costs [i * set_size + j] = Cost (input_set [a], expected_set [a]);
+
+                BackPropagate (input_set [a], expected_set [a]);
+                UpdateGradientDescent ();
+            };
+        };
         return costs;
     };
 
     float* GD_Stochastic (float* input_set [], float* expected_set [], size_t set_size, size_t minibatch_size)
     { 
         float* costs = new float [set_size];
-
         int k = set_size / minibatch_size;
         float mean_batch = (float)1 / (float)minibatch_size;
 
-        for (int i = 0; i < k; i++)
+        int indices [set_size];
+        for (int i = 0; i < set_size; i++)
         {
-            UpdateLearningRate (i);
+            indices [i] = i;
+        };
 
-            costs [i] = Cost (input_set [i * minibatch_size], expected_set [i * minibatch_size]);
+        for (int i = 0; i < epochs; i++)
+        {
+            shuffle (indices, indices + set_size, std::mt19937 (seed));
 
-            ResetGradients ();
-
-            for (int j = 0; j < minibatch_size; j++)
+            for (int j = 0; j < k; j++)
             {
-                BackPropagateStochastic (input_set [i * minibatch_size + j], expected_set [i * minibatch_size + j], mean_batch);
-            };
+                UpdateLearningRate (j);
 
-            UpdateGradientDescent ();
+                costs [i * k + j] = Cost (input_set [indices [j * minibatch_size]], expected_set [indices [j * minibatch_size]]);
+
+                ResetGradients ();
+
+                for (int k = 0; k < minibatch_size; k++)
+                {
+                    BackPropagateStochastic (input_set [indices [j * minibatch_size + k]], expected_set [indices [j * minibatch_size + k]], mean_batch);
+                };
+
+                UpdateGradientDescent ();
+            };
         };
         return costs;
     };
@@ -649,24 +681,34 @@ struct Network
     float* GD_StochasticMomentum (float* input_set [], float* expected_set [], size_t set_size, size_t minibatch_size)
     { 
         float* costs = new float [set_size];
-
         int k = set_size / minibatch_size;
         float mean_batch = (float)1 / (float)minibatch_size;
 
-        for (int i = 0; i < k; i++)
+        int indices [set_size];
+        for (int i = 0; i < set_size; i++)
         {
-            UpdateLearningRate (i);
+            indices [i] = i;
+        };
 
-            costs [i] = Cost (input_set [i * minibatch_size], expected_set [i * minibatch_size]);
+        for (int i = 0; i < epochs; i++)
+        {
+            shuffle (indices, indices + set_size, std::mt19937 (seed));
 
-            ResetGradients ();
-
-            for (int j = 0; j < minibatch_size; j++)
+            for (int j = 0; j < k; j++)
             {
-                BackPropagateStochastic (input_set [i * minibatch_size + j], expected_set [i * minibatch_size + j], mean_batch);
-            };
+                UpdateLearningRate (j);
 
-            UpdateMomentum ();
+                costs [i * k + j] = Cost (input_set [indices [j * minibatch_size]], expected_set [indices [j * minibatch_size]]);
+
+                ResetGradients ();
+
+                for (int k = 0; k < minibatch_size; k++)
+                {
+                    BackPropagateStochastic (input_set [indices [j * minibatch_size + k]], expected_set [indices [j * minibatch_size + k]], mean_batch);
+                };
+
+                UpdateMomentum ();
+            };
         };
         return costs;
     };
@@ -674,26 +716,35 @@ struct Network
     float* GD_StochasticNesterov (float* input_set [], float* expected_set [], size_t set_size, size_t minibatch_size)
     { 
         float* costs = new float [set_size];
-
         int k = set_size / minibatch_size;
         float mean_batch = (float)1 / (float)minibatch_size;
 
-        for (int i = 0; i < k; i++)
+        int indices [set_size];
+        for (int i = 0; i < set_size; i++)
         {
-            UpdateLearningRate (i);
+            indices [i] = i;
+        };
 
-            costs [i] = Cost (input_set [i * minibatch_size], expected_set [i * minibatch_size]);
+        for (int i = 0; i < epochs; i++)
+        {
+            shuffle (indices, indices + set_size, std::mt19937 (seed));
 
-            UpdateInterim ();
-
-            ResetGradients ();
-
-            for (int j = 0; j < minibatch_size; j++)
+            for (int j = 0; j < k; j++)
             {
-                BackPropagateStochastic (input_set [i * minibatch_size + j], expected_set [i * minibatch_size + j], mean_batch);
-            };
+                UpdateLearningRate (j);
 
-            UpdateMomentum ();
+                costs [i * k + j] = Cost (input_set [indices [j * minibatch_size]], expected_set [indices [j * minibatch_size]]);
+
+                UpdateInterim ();
+                ResetGradients ();
+
+                for (int k = 0; k < minibatch_size; k++)
+                {
+                    BackPropagateStochastic (input_set [indices [j * minibatch_size + k]], expected_set [indices [j * minibatch_size + k]], mean_batch);
+                };
+
+                UpdateMomentum ();
+            };
         };
         return costs;
     };
@@ -701,24 +752,34 @@ struct Network
     float* GD_RMSProp (float* input_set [], float* expected_set [], size_t set_size, size_t minibatch_size)
     { 
         float* costs = new float [set_size];
-
         int k = set_size / minibatch_size;
         float mean_batch = (float)1 / (float)minibatch_size;
 
-        for (int i = 0; i < k; i++)
+        int indices [set_size];
+        for (int i = 0; i < set_size; i++)
         {
-            UpdateLearningRate (i);
+            indices [i] = i;
+        };
 
-            costs [i] = Cost (input_set [i * minibatch_size], expected_set [i * minibatch_size]);
+        for (int i = 0; i < epochs; i++)
+        {
+            shuffle (indices, indices + set_size, std::mt19937 (seed));
 
-            ResetGradients ();
-
-            for (int j = 0; j < minibatch_size; j++)
+            for (int j = 0; j < k; j++)
             {
-                BackPropagateStochastic (input_set [i * minibatch_size + j], expected_set [i * minibatch_size + j], mean_batch);
-            };
+                UpdateLearningRate (j);
 
-            UpdateRMSProp ();
+                costs [i * k + j] = Cost (input_set [indices [j * minibatch_size]], expected_set [indices [j * minibatch_size]]);
+
+                ResetGradients ();
+
+                for (int k = 0; k < minibatch_size; k++)
+                {
+                    BackPropagateStochastic (input_set [indices [j * minibatch_size + k]], expected_set [indices [j * minibatch_size + k]], mean_batch);
+                };
+
+                UpdateRMSProp ();
+            };
         };
         return costs;
     };
@@ -726,26 +787,35 @@ struct Network
     float* GD_RMSPropNesterov (float* input_set [], float* expected_set [], size_t set_size, size_t minibatch_size)
     { 
         float* costs = new float [set_size];
-
         int k = set_size / minibatch_size;
         float mean_batch = (float)1 / (float)minibatch_size;
 
-        for (int i = 0; i < k; i++)
+        int indices [set_size];
+        for (int i = 0; i < set_size; i++)
         {
-            UpdateLearningRate (i);
+            indices [i] = i;
+        };
 
-            costs [i] = Cost (input_set [i * minibatch_size], expected_set [i * minibatch_size]);
+        for (int i = 0; i < epochs; i++)
+        {
+            shuffle (indices, indices + set_size, std::mt19937 (seed));
 
-            UpdateInterim ();
-
-            ResetGradients ();
-
-            for (int j = 0; j < minibatch_size; j++)
+            for (int j = 0; j < k; j++)
             {
-                BackPropagateStochastic (input_set [i * minibatch_size + j], expected_set [i * minibatch_size + j], mean_batch);
-            };
+                UpdateLearningRate (j);
 
-            UpdateNesterovRMSProp ();
+                costs [i * k + j] = Cost (input_set [indices [j * minibatch_size]], expected_set [indices [j * minibatch_size]]);
+
+                UpdateInterim ();
+                ResetGradients ();
+
+                for (int k = 0; k < minibatch_size; k++)
+                {
+                    BackPropagateStochastic (input_set [indices [j * minibatch_size + k]], expected_set [indices [j * minibatch_size + k]], mean_batch);
+                };
+
+                UpdateNesterovRMSProp ();
+            };
         };
         return costs;
     };
@@ -775,10 +845,10 @@ struct Network
         size_t n = dimensions [depth];
         float* g = LossGradient (y, expected, n);
 
-        // Iterate throug layers and calculate gradient
+        // Iterate through layers and calculate gradient
         for (int i = depth - 1; i > -1; i--) 
         {
-            Layer* layer = layers [i];
+            Layer <depth>* layer = layers [i];
 
             size_t M = layer -> size.M;
             size_t N = layer -> size.N;
@@ -827,19 +897,23 @@ struct Network
                 };
             };
 
-            // Calculate gradient of loss function with respect to the activations of the previous layer (i - 1)
-            float* x = new float [N];
+            for (int j = 0; j < M; j++)
+            {
+                delete [] rgw [j];
+            };
+            delete [] rgw;
 
+            // Calculate gradient of loss function with respect to the activations of the previous layer (i - 1)
+            float* x = new float [N]();
             for (int k = 0; k < N; k++)
             {
-                x [k] = 0.0;
-
                 for (int j = 0; j < M; j++)
                 {
                     x [k] += g [j] * layer -> weights [j][k];
                 };
             };
 
+            delete [] g;
             g = x;
 
             // Store the gradients
@@ -861,10 +935,10 @@ struct Network
         size_t n = dimensions [depth];
         float* g = LossGradient (y, expected, n);
 
-        // Iterate throug layers and calculate gradient
+        // Iterate through layers and calculate gradient
         for (int i = depth - 1; i > -1; i--) 
         {
-            Layer* layer = layers [i];
+            Layer <depth>* layer = layers [i];
 
             size_t M = layer -> size.M;
             size_t N = layer -> size.N;
@@ -913,19 +987,23 @@ struct Network
                 };
             };
 
-            // Calculate gradient of loss function with respect to the activations of the previous layer (i - 1)
-            float* x = new float [N];
+            for (int j = 0; j < M; j++)
+            {
+                delete [] rgw [j];
+            };
+            delete [] rgw;
 
+            // Calculate gradient of loss function with respect to the activations of the previous layer (i - 1)
+            float* x = new float [N]();
             for (int k = 0; k < N; k++)
             {
-                x [k] = 0.0;
-
                 for (int j = 0; j < M; j++)
                 {
                     x [k] += g [j] * layer -> weights [j][k];
                 };
             };
 
+            delete [] g;
             g = x;
 
             // Store the gradients
@@ -946,7 +1024,7 @@ struct Network
     { 
         for (int i = 0; i < depth; i++)
         {
-            Layer* layer = layers [i];
+            Layer <depth>* layer = layers [i];
             
             size_t M = layer -> size.M;
             size_t N = layer -> size.N;
@@ -968,7 +1046,7 @@ struct Network
     { 
         for (int i = 0; i < depth; i++)
         {
-            Layer* layer = layers [i];
+            Layer <depth>* layer = layers [i];
             
             size_t M = layer -> size.M;
             size_t N = layer -> size.N;
@@ -1001,7 +1079,7 @@ struct Network
     { 
         for (int i = 0; i < depth; i++)
         {
-            Layer* layer = layers [i];
+            Layer <depth>* layer = layers [i];
             
             size_t M = layer -> size.M;
             size_t N = layer -> size.N;
@@ -1025,7 +1103,7 @@ struct Network
 
         for (int i = 0; i < depth; i++)
         {
-            Layer* layer = layers [i];
+            Layer <depth>* layer = layers [i];
             
             size_t M = layer -> size.M;
             size_t N = layer -> size.N;
@@ -1054,11 +1132,11 @@ struct Network
         };
     }; 
 
-    void UpdateNesterovRMSProp (bool stochastic = true, bool interim = false, bool rms = true) 
+    void UpdateNesterovRMSProp () 
     { 
         for (int i = 0; i < depth; i++)
         {
-            Layer* layer = layers [i];
+            Layer <depth>* layer = layers [i];
             
             size_t M = layer -> size.M;
             size_t N = layer -> size.N;
@@ -1106,16 +1184,18 @@ void test_function (float x [4], float* y)
 int main () 
 {
     // Initialise Network
-    size_t dimensions [] = {4, 20, 20, 4};
-    activation_fn functions [] = {ReLU, ReLU, ReLU};
-    activation_fn derivatives [] = {Step, Step, Step};
+    size_t dimensions [5] = {4, 10, 50, 10, 4};
+    activation_fn functions [4] = {ReLU, ReLU, ReLU, ReLU};
+    activation_fn derivatives [4] = {Step, Step, Step, Step};
     float reg_factor = 0.5;
-    float learn_rate = 0.1;
+    float learn_rate = 1;
     float learn_rate_time_constant = 300;
     float momentum = 0.5;
     float rms_decay_rate = 0.5;
+    int epochs = 10;
+    int seed = 1000;
 
-    Network <3> network (
+    Network <4> network (
         dimensions, 
         functions, 
         derivatives, 
@@ -1126,9 +1206,10 @@ int main ()
         learn_rate,
         learn_rate_time_constant,
         momentum,
-        rms_decay_rate
+        rms_decay_rate,
+        epochs,
+        seed
     );
-
 
     // Create Fake Test Data
     size_t size = 10000;
@@ -1137,7 +1218,7 @@ int main ()
     float* input [size];
     float* expected [size];
 
-    std::mt19937 generator (1000);
+    std::mt19937 generator (seed);
     std::uniform_real_distribution <float> distribution (0.0, 1.0);
 
     for (int i = 0; i < size; i++) 
@@ -1154,7 +1235,6 @@ int main ()
         expected [i] = y;
     };
 
-
     // Train Network
     // float* costs = network.GD_Basic (input, expected, size);
     // float* costs = network.GD_Stochastic (input, expected, size, batch_size);
@@ -1170,7 +1250,7 @@ int main ()
     // int num_costs = size;
     int num_costs = size / batch_size;
 
-    for (int i = 0; i < num_costs; i++) 
+    for (int i = 0; i < num_costs * epochs; i++) 
     {
         out << costs [i] << ",";
     };
@@ -1180,5 +1260,13 @@ int main ()
 };
 
 // TODO: improve python graphing
+// TODO: testing, find decent default values
+// TODO: why is RMSProp producing such a weird pattern of losses
+// TODO: why is the model not overfitting
 
-// TODO: Data oriented refactor - remove branching, hidden state etc
+// TODO: regularisation chapter
+
+// TODO: begin creating data preprocessing program
+
+// TODO: CNN
+// TODO: RNN
