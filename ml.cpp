@@ -1268,5 +1268,7 @@ int main ()
 
 // TODO: begin creating data preprocessing program
 
+// TODO: shadey bois - maybe NOT shadey bois 
+
 // TODO: CNN
 // TODO: RNN
