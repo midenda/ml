@@ -7,6 +7,8 @@
 #include <functional>
 #include <algorithm> // std::shuffle
 
+#include "./tensor.h"
+
 typedef float (*activation_fn) (float);
 typedef float* (*output_fn) (float[], size_t);
 typedef float (*loss_fn) (float[], float[], size_t);
@@ -190,6 +192,11 @@ struct Random
     };
 };
 
+struct ImageConvolutionLayer 
+{
+    // TODO:
+};
+
 
 template <size_t depth>
 struct Layer
@@ -211,7 +218,7 @@ struct Layer
         float** p, float* b, 
         size_t M, size_t N, 
         activation_fn f, activation_fn f_prime, 
-        Random<depth>* r, int layer_depth
+        Random <depth>* r, int layer_depth
     ) 
         : fn (f), fn_prime (f_prime)
     {
@@ -263,7 +270,7 @@ struct Layer
         delete [] weights [0];
         delete [] weights;
         delete [] x;
-        delete [] biases; // is this a problem? maybe
+        delete [] biases; //? is this a problem? maybe
         delete [] activations;
     };
 
@@ -1181,7 +1188,7 @@ void test_function (float x [4], float* y)
 };
 
 
-int main () 
+void run_net ()
 {
     // Initialise Network
     size_t dimensions [5] = {4, 10, 50, 10, 4};
@@ -1236,12 +1243,12 @@ int main ()
     };
 
     // Train Network
-    // float* costs = network.GD_Basic (input, expected, size);
+    float* costs = network.GD_Basic (input, expected, size);
     // float* costs = network.GD_Stochastic (input, expected, size, batch_size);
     // float* costs = network.GD_StochasticMomentum (input, expected, size, batch_size);
     // float* costs = network.GD_StochasticNesterov (input, expected, size, batch_size);
     // float* costs = network.GD_RMSProp (input, expected, size, batch_size);
-    float* costs = network.GD_RMSPropNesterov (input, expected, size, batch_size);
+    // float* costs = network.GD_RMSPropNesterov (input, expected, size, batch_size);
 
     // Process Results
     std::ofstream out;
@@ -1259,6 +1266,14 @@ int main ()
     system ("python graph.py");
 };
 
+
+int main () 
+{
+    run_net ();
+};
+
+// TODO: switch to using Tensor for weights etc
+
 // TODO: improve python graphing
 // TODO: testing, find decent default values
 // TODO: why is RMSProp producing such a weird pattern of losses
@@ -1268,7 +1283,7 @@ int main ()
 
 // TODO: begin creating data preprocessing program
 
-// TODO: shadey bois - maybe NOT shadey bois 
+// TODO: CUDA? or openCL
 
 // TODO: CNN
 // TODO: RNN
