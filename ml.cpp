@@ -224,7 +224,7 @@ struct Layer
     {
         size.M = M;
         size.N = N;
-
+        // TODO: make tensor?
         activations = new float [M]();
         x = new float [M]();
 
@@ -368,7 +368,7 @@ struct Network
             activation_fn f = functions [i];
             activation_fn f_prime = derivatives [i];
 
-            // Initialise gradients
+            // Initialise gradients //TODO: make tensor?
             float** w = new float* [M];
             for (int j = 0; j < M; j++)
             {
@@ -1279,7 +1279,7 @@ int main ()
 // TODO: why is RMSProp producing such a weird pattern of losses
 // TODO: why is the model not overfitting
 
-// TODO: regularisation chapter
+// TODO: read regularisation chapter
 
 // TODO: begin creating data preprocessing program
 

@@ -4,4 +4,4 @@
 __pycache__/
 ml.dSYM/
 losses.csv
-tensor.dSYM/
+tests/
