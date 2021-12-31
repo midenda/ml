@@ -3,19 +3,6 @@
 
 typedef unsigned int uint;
 
-// Implementation of std::conditional
-template <bool, typename T, typename F>
-struct conditional
-{
-    typedef T type;
-};
-
-template <typename T, typename F>
-struct conditional <false, T, F>
-{
-    typedef F type;
-};
-
 
 template <typename T, size_t N>
 struct Tensor
@@ -24,8 +11,7 @@ struct Tensor
     T* elements;
     uint layer;
 
-    typedef typename conditional <(N > 1), Tensor <T, N - 1>, void> ::type ChildType;
-    ChildType** children;
+    Tensor <T, N - 1>** children;
 
     Tensor () {};
 
@@ -115,14 +101,32 @@ struct Tensor
 
     Tensor (const Tensor& t) = delete;
 
-    ChildType& operator[] (size_t idx) 
+    Tensor <T, N - 1>& operator[] (uint idx) 
     {
         return *(children [idx]);
     };
 
-    const ChildType& operator[] (size_t idx) const 
+    const Tensor <T, N - 1>& operator[] (uint idx) const 
     {
         return *(children [idx]);
+    };
+
+    T index (uint indices [N])
+    {
+        uint position = 0;
+
+        for (uint i = 0; i < N; i++)
+        {
+            uint offset = 1;
+
+            for (uint j = 0; j < N - 1 - i; j++)
+            {
+                offset *= dimensions [N - 1 - j];
+            };
+
+            position += offset * indices [i];
+        };
+        return elements [position];
     };
 };
 
@@ -175,4 +179,16 @@ struct Tensor <T, 1>
     {
         return elements [idx];
     };
+
+    T index (uint idx)
+    {
+        return elements [idx];
+    };
+};
+
+// TODO:
+template <typename T, size_t dim []>
+struct JaggedTensor
+{
+    Tensor <T, N>
 };

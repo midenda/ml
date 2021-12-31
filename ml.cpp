@@ -9,6 +9,19 @@
 
 #include "./tensor.h"
 
+// Implementation of std::conditional
+template <bool, typename T, typename F>
+struct conditional
+{
+    typedef T type;
+};
+
+template <typename T, typename F>
+struct conditional <false, T, F>
+{
+    typedef F type;
+};
+
 typedef float (*activation_fn) (float);
 typedef float* (*output_fn) (float[], size_t);
 typedef float (*loss_fn) (float[], float[], size_t);
@@ -309,6 +322,7 @@ struct Network
     Random <depth>* r;
     const int seed;
 
+    // TODO: make tensor?
     float** weight_gradients [depth];
     float* bias_gradients [depth];
 
@@ -1266,10 +1280,25 @@ void run_net ()
     system ("python graph.py");
 };
 
+void test_tensor ()
+{
+    size_t dimensions [3] = {2, 3, 2};
+    float elements [] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+    uint indices [] = {1, 2, 0};
+    Tensor <float, 3> T (dimensions, elements);
+
+    if (T.index (indices) != T [1][2][0])
+    {
+        std::cout << T.index (indices) << std::endl;
+        std::cout << T [1][2][0] << std::endl; 
+    };
+};
+
 
 int main () 
 {
-    run_net ();
+    // run_net ();
+    test_tensor ();
 };
 
 // TODO: switch to using Tensor for weights etc
@@ -1278,6 +1307,7 @@ int main ()
 // TODO: testing, find decent default values
 // TODO: why is RMSProp producing such a weird pattern of losses
 // TODO: why is the model not overfitting
+// TODO: test on actual data
 
 // TODO: read regularisation chapter
 
@@ -1287,3 +1317,15 @@ int main ()
 
 // TODO: CNN
 // TODO: RNN
+
+//TODO: 
+/*
+Rename Network -> FullyConnectedLayers
+
+New Network contains:   
+                ConvolutionalLayers
+                FullyConnectedLayers
+                RecurrentLayers
+
+Same backpropagation algorithms/structure etc for FullyConnectedLayers, pass final gradient from one stage to the next
+*/
