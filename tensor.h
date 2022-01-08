@@ -82,6 +82,39 @@ struct Tensor
         elements = e; 
     };
 
+    Tensor (size_t input_dimensions [N])
+    {
+        layer = 0;
+
+        for (int i = 0; i < N; i++)
+        {
+            dimensions [i] = input_dimensions [i];
+        };
+
+        size_t length = dimensions [0];
+        size_t dim [N - 1];
+        size_t separation = 1;
+
+        for (int i = 0; i < N - 1; i++)
+        {
+            size_t d = dimensions [i + 1];
+
+            dim [i] = d;
+            separation *= d;
+            length *= d;
+        };
+
+        elements = new T [length]{};
+
+        size_t l = dimensions [0];
+        children = new Tensor <T, N - 1>* [l];
+
+        for (int i = 0; i < l; i++)
+        {
+            children [i] = new Tensor <T, N - 1> (dim, (elements + separation * i), 1);
+        };
+    };
+
     ~Tensor () 
     {
         if (children != nullptr)
@@ -170,25 +203,25 @@ struct Tensor <T, 1>
 
     Tensor (const Tensor& t) = delete;
 
-    T operator[] (size_t idx) 
+    const T& operator[] (size_t idx) const 
     {
         return elements [idx];
     };
 
-    const T operator[] (size_t idx) const 
+    T& operator[] (size_t idx) 
     {
         return elements [idx];
     };
 
-    T index (uint idx)
+    T& index (uint idx)
     {
         return elements [idx];
     };
 };
 
 // TODO:
-template <typename T, size_t dim []>
-struct JaggedTensor
-{
-    Tensor <T, N>
-};
+// template <typename T, size_t dim []>
+// struct JaggedTensor
+// {
+//     Tensor <T, N>
+// };
