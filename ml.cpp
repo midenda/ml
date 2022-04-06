@@ -27,6 +27,14 @@ struct conditional <false, T, F>
     typedef F type;
 };
 
+
+template <typename FunctionType, typename InputType, typename OutputType, size_t N>
+void Iterate (FunctionType f, InputType x, OutputType y, size_t dimensions [N]);
+
+template <typename FunctionType, typename InputType, typename OutputType, size_t M, size_t N>
+void Iterate (FunctionType f, InputType x, OutputType y, size_t dimensions [M], uint outer_index [N]);
+
+
 enum ConvolutionType { valid, optimal, same, full };
 
 typedef float (*activation_fn) (float);
@@ -109,58 +117,6 @@ struct ConvolutionIterFunc
     typedef void (*Outer)    (const ConvolutionInput <Dim, Chns, Backprop>&, Tensor <float, Dim + ((1 + Backprop) * Chns)>&, uint [Dim + (2 * Chns)]);
     typedef void (*Channel)  (const ConvolutionInput <Dim, Chns, Backprop>&, Tensor <float, Dim + ((1 + Backprop) * Chns)>&, uint [2]);
 };
-
-
-template <typename FunctionType, typename InputType, typename OutputType, size_t N>
-void __iteration (FunctionType f, InputType x, OutputType y, size_t dimensions [N], uint* index, uint l, uint offset = 0)
-{
-    if (l < N)
-    {
-        for (uint i = 0; i < dimensions [l]; i++)
-            __iteration <FunctionType, InputType, OutputType, N> (f, x, y, dimensions, index, l + 1, offset);
-    } 
-    else 
-    {
-        f (x, y, index);
-
-        for (uint i = offset + N; i > offset; i--)
-        {
-            if (index [i - 1] < dimensions [i - offset - 1] - 1)
-            {
-                index [i - 1] += 1;
-                break;
-            }
-            else
-            {
-                index [i - 1] = 0;
-            };
-        };
-    };
-};
-
-template <typename FunctionType, typename InputType, typename OutputType, size_t N>
-void Iterate (FunctionType f, InputType x, OutputType y, size_t dimensions [N])
-{
-    uint l = 0;
-    uint* index = new uint [N]{};
-
-    __iteration <FunctionType, InputType, OutputType, N> (f, x, y, dimensions, index, l);
-};
-
-template <typename FunctionType, typename InputType, typename OutputType, size_t M, size_t N>
-void Iterate (FunctionType f, InputType x, OutputType y, size_t dimensions [M], uint outer_index [N])
-{
-    uint l = 0;
-    uint* index = new uint [M + N]{};
-
-    for (uint i = 0; i < N; i++)
-    {
-        index [i] = outer_index [i];
-    };
-
-    __iteration <FunctionType, InputType, OutputType, M> (f, x, y, dimensions, index, l, N);
-};
-
 
 template <size_t Dim, bool Chns, bool Backprop>
 void __inner_convolution_loop (const ConvolutionInput <Dim, Chns, Backprop>& conv_inpt, Tensor <float, Dim + ((1 + Backprop) * Chns)>& output, uint index [2 * (Dim + Chns)]) 

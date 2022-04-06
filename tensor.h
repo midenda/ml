@@ -9,6 +9,58 @@
 
 typedef unsigned int uint;
 
+
+template <typename FunctionType, typename InputType, typename OutputType, size_t N>
+void __iteration (FunctionType f, InputType x, OutputType y, size_t dimensions [N], uint* index, uint l, uint offset = 0)
+{
+    if (l < N)
+    {
+        for (uint i = 0; i < dimensions [l]; i++)
+            __iteration <FunctionType, InputType, OutputType, N> (f, x, y, dimensions, index, l + 1, offset);
+    } 
+    else 
+    {
+        f (x, y, index);
+
+        for (uint i = offset + N; i > offset; i--)
+        {
+            if (index [i - 1] < dimensions [i - offset - 1] - 1)
+            {
+                index [i - 1] += 1;
+                break;
+            }
+            else
+            {
+                index [i - 1] = 0;
+            };
+        };
+    };
+};
+
+template <typename FunctionType, typename InputType, typename OutputType, size_t N>
+void Iterate (FunctionType f, InputType x, OutputType y, size_t dimensions [N])
+{
+    uint l = 0;
+    uint* index = new uint [N]{};
+
+    __iteration <FunctionType, InputType, OutputType, N> (f, x, y, dimensions, index, l);
+};
+
+template <typename FunctionType, typename InputType, typename OutputType, size_t M, size_t N>
+void Iterate (FunctionType f, InputType x, OutputType y, size_t dimensions [M], uint outer_index [N])
+{
+    uint l = 0;
+    uint* index = new uint [M + N]{};
+
+    for (uint i = 0; i < N; i++)
+    {
+        index [i] = outer_index [i];
+    };
+
+    __iteration <FunctionType, InputType, OutputType, M> (f, x, y, dimensions, index, l, N);
+};
+
+
 template <typename T, size_t N>
 struct Tensor
 {
