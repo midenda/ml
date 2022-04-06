@@ -1,5 +1,5 @@
 #define DEBUG_LEVEL 1
-#define SEED 1000
+#define SEED 999
 
 #include <cmath>
 #include <iostream>
@@ -33,6 +33,314 @@ typedef float (*activation_fn) (float);
 typedef float* (*output_fn) (float[], size_t);
 typedef float (*loss_fn) (float[], float[], size_t);
 typedef float* (*loss_gradient) (float[], float[], size_t);
+
+template <size_t Dim, bool Chns, bool Backprop>
+struct ConvolutionInput
+{
+    const Tensor <float, Dim + Chns>& input;
+    const Tensor <float, Dim + ((2 - Backprop) * Chns)>& kernel;
+
+    uint downsample;
+    uint padding [Dim];
+
+    ConvolutionInput 
+    (
+        const Tensor <float, Dim + Chns>& input, 
+        const Tensor <float, Dim + ((2 - Backprop) * Chns)>& kernel, 
+        ConvolutionType type = same, 
+        uint downsample = 1
+    )
+        : input {input}, kernel {kernel}, downsample {downsample}
+    {
+        /* 
+        m: input width
+        k: kernel width
+
+        if no zero padding (VALID convolution):
+            output has width                           m - k + 1 
+
+        if zero padding (SAME convolution):
+            enough zeroes added to maintain size
+            output width = input width                 m
+
+        if zero padding (FULL convolution):
+            enough zeroes added so that each input pixel is visited k times
+            output width                               m + k - 1
+
+        */
+
+        switch (type)
+        {
+            case valid:    
+                for (uint i = 0; i < Dim; i++)
+                {   
+                    padding [i] = 0;
+                };   
+                break;
+
+            case optimal:
+                for (uint i = 0; i < Dim; i++)
+                {   
+                    padding [i] = kernel.dimensions [i + ((2 - Backprop) * Chns)] / 3;  
+                };   
+                break;
+
+            case same:        
+                for (uint i = 0; i < Dim; i++)
+                {   
+                    padding [i] = kernel.dimensions [i + ((2 - Backprop) * Chns)] / 2;  
+                };   
+                break;
+
+            case full:        
+                for (uint i = 0; i < Dim; i++)
+                {   
+                    padding [i] = kernel.dimensions [i + ((2 - Backprop) * Chns)] - 1;  
+                };
+                break;
+        };
+    };
+};
+
+template <size_t Dim, bool Chns, bool Backprop>
+struct ConvolutionIterFunc
+{
+    typedef void (*Inner)    (const ConvolutionInput <Dim, Chns, Backprop>&, Tensor <float, Dim + ((1 + Backprop) * Chns)>&, uint [2 * (Dim + Chns)]);
+    typedef void (*Outer)    (const ConvolutionInput <Dim, Chns, Backprop>&, Tensor <float, Dim + ((1 + Backprop) * Chns)>&, uint [Dim + (2 * Chns)]);
+    typedef void (*Channel)  (const ConvolutionInput <Dim, Chns, Backprop>&, Tensor <float, Dim + ((1 + Backprop) * Chns)>&, uint [2]);
+};
+
+
+template <typename FunctionType, typename InputType, typename OutputType, size_t N>
+void __iteration (FunctionType f, InputType x, OutputType y, size_t dimensions [N], uint* index, uint l, uint offset = 0)
+{
+    if (l < N)
+    {
+        for (uint i = 0; i < dimensions [l]; i++)
+            __iteration <FunctionType, InputType, OutputType, N> (f, x, y, dimensions, index, l + 1, offset);
+    } 
+    else 
+    {
+        f (x, y, index);
+
+        for (uint i = offset + N; i > offset; i--)
+        {
+            if (index [i - 1] < dimensions [i - offset - 1] - 1)
+            {
+                index [i - 1] += 1;
+                break;
+            }
+            else
+            {
+                index [i - 1] = 0;
+            };
+        };
+    };
+};
+
+template <typename FunctionType, typename InputType, typename OutputType, size_t N>
+void Iterate (FunctionType f, InputType x, OutputType y, size_t dimensions [N])
+{
+    uint l = 0;
+    uint* index = new uint [N]{};
+
+    __iteration <FunctionType, InputType, OutputType, N> (f, x, y, dimensions, index, l);
+};
+
+template <typename FunctionType, typename InputType, typename OutputType, size_t M, size_t N>
+void Iterate (FunctionType f, InputType x, OutputType y, size_t dimensions [M], uint outer_index [N])
+{
+    uint l = 0;
+    uint* index = new uint [M + N]{};
+
+    for (uint i = 0; i < N; i++)
+    {
+        index [i] = outer_index [i];
+    };
+
+    __iteration <FunctionType, InputType, OutputType, M> (f, x, y, dimensions, index, l, N);
+};
+
+
+template <size_t Dim, bool Chns, bool Backprop>
+void __inner_convolution_loop (const ConvolutionInput <Dim, Chns, Backprop>& conv_inpt, Tensor <float, Dim + ((1 + Backprop) * Chns)>& output, uint index [2 * (Dim + Chns)]) 
+{
+    // index has form: [(ChOut, ChIn,) Out..., Kernel...]
+
+    size_t dimensions [Dim];
+    for (uint i = 0; i < Dim; i++) 
+    {
+        dimensions [i] = conv_inpt.input.dimensions [i + Chns];
+    };
+
+    uint InputIndex [Dim + Chns]; // (Channel), A, B, C...
+    uint KernelIndex [Dim + ((2 - Backprop) * Chns)]; // (Channel Out, Channel In), A, B, C...
+    uint OutputIndex [Dim + ((1 + Backprop) * Chns)]; // (Channel), A, B, C...
+
+    if (Chns)
+    {
+        InputIndex [0] = index [1];
+
+        if (!Backprop)
+        {
+            KernelIndex [0] = index [0];
+            KernelIndex [1] = index [1];
+
+            OutputIndex [0] = index [0];
+        } 
+        else 
+        {
+            KernelIndex [0] = index [0];
+
+            OutputIndex [0] = index [0];
+            OutputIndex [1] = index [1];
+        };
+    };
+
+    for (uint i = 0; i < Dim; i++)
+    {
+        //      (output coords   *  downsample factor) +   kernel coords   -     padding
+        int j = index [i + (2 * Chns)] * conv_inpt.downsample + index [Dim + (2 * Chns) + i] - conv_inpt.padding [i];
+
+        // Range check: add zero if index out of range to emmulate zero padding
+        if (j < 0 || j >= dimensions [i]) return;
+
+        InputIndex [i + Chns] = j;
+    };
+
+    for (uint i = 0; i < Dim; i++)
+    {
+        KernelIndex [i + (2 - Backprop) * Chns] = index [Dim + (2 * Chns) + i];
+        OutputIndex [i + ((1 + Backprop) * Chns)] = index [i + (2 * Chns)];
+    };
+
+    output [OutputIndex] += conv_inpt.input [InputIndex] * conv_inpt.kernel [KernelIndex];
+};
+
+template <size_t Dim, bool Chns, bool Backprop>
+void __outer_convolution_loop (const ConvolutionInput <Dim, Chns, Backprop>& conv_inpt, Tensor <float, Dim + ((1 + Backprop) * Chns)>& output, uint index [Dim + (2 * Chns)]) 
+{
+    size_t kernel_dimensions [Dim];
+    for (uint i = 0; i < Dim; i++)
+    {
+        kernel_dimensions [i] = conv_inpt.kernel.dimensions [i + ((2 - Backprop) * Chns)];
+    };
+
+    Iterate 
+    <
+        typename ConvolutionIterFunc <Dim, Chns, Backprop>::Inner, 
+        const ConvolutionInput <Dim, Chns, Backprop>&, 
+        Tensor <float, Dim + ((1 + Backprop) * Chns)>&, 
+        Dim, 
+        Dim + (2 * Chns)
+    > 
+    (
+        __inner_convolution_loop, conv_inpt, output, kernel_dimensions, index
+    );
+};
+
+template <size_t Dim, bool Chns, bool Backprop>
+void __channel_convolution_loop (const ConvolutionInput <Dim, Chns, Backprop>& conv_inpt, Tensor <float, Dim + ((1 + Backprop) * Chns)>& output, uint channels [2])
+{
+    size_t output_dimensions [Dim];
+    for (uint i = 0; i < Dim; i++)
+    {
+        output_dimensions [i] = output.dimensions [i + ((1 + Backprop) * Chns)];
+    };
+
+    Iterate 
+    <
+        typename ConvolutionIterFunc <Dim, Chns, Backprop>::Outer, 
+        const ConvolutionInput <Dim, Chns, Backprop>&, 
+        Tensor <float, Dim + ((1 + Backprop) * Chns)>&, 
+        Dim, 
+        2
+    >
+    (
+        __outer_convolution_loop, conv_inpt, output, output_dimensions, channels
+    );
+};
+
+// Convolution with channels
+template <size_t Dim, bool Chns, bool Backprop>
+void Convolve (
+    const Tensor <float, Dim + Chns>& input, 
+    const Tensor <float, Dim + ((2 - Backprop) * Chns)>& kernel,
+          Tensor <float, Dim + ((1 + Backprop) * Chns)>& output, 
+    ConvolutionType type = same,
+    uint downsample = 1
+)
+{
+    ConvolutionInput <Dim, Chns, Backprop> conv_inpt (input, kernel, type, downsample);
+
+    output.SetElements (0.0);
+
+    size_t channels [2];
+
+    if (Chns)
+    {
+        if (!Backprop)
+        {
+            for (uint i = 0; i < 2; i++)
+            {
+                channels [i] = kernel.dimensions [i];
+            };
+        } 
+        else 
+        {
+            for (uint i = 0; i < 2; i++)
+            {
+                channels [i] = output.dimensions [i];
+            };
+        };
+
+        Iterate 
+        <
+            typename ConvolutionIterFunc <Dim, Chns, Backprop>::Channel, 
+            const ConvolutionInput <Dim, Chns, Backprop>&, 
+            Tensor <float, Dim + ((1 + Backprop) * Chns)>&, 
+            2
+        > 
+        (
+            __channel_convolution_loop, conv_inpt, output, channels
+        );
+    }
+    else
+    {
+        Iterate 
+        <
+            typename ConvolutionIterFunc <Dim, Chns, Backprop>::Outer, 
+            const ConvolutionInput <Dim, Chns, Backprop>&, 
+            Tensor <float, Dim + ((1 + Backprop) * Chns)>&, 
+            Dim
+        >
+        (
+            __outer_convolution_loop, conv_inpt, output, output.dimensions
+        );
+    };
+};
+
+// ***---------  CONVOLUTION LOGIC  ---------***
+// if channels, one dimension of the input and the output denotes channel
+// the kernel then has one extra dimension to represent whether or not the channels match.
+// ie CONVOLVE (DIM, DIM + 1) = DIM
+//               1      2        1
+//              [        ]
+//                     [          ]
+
+// if no channels, no consideration of channels is needed
+// ie CONVOLVE (DIM, DIM) = DIM
+//     (iterate over output dimensions, then inner)
+
+// during backpropagation, you convolve the input and output to find values in the kernel
+// ie CONVOLVE (DIM, DIM) = DIM + 1
+//               1    1        2
+//              [               ]
+//                   [          ]
+
+//     (iterate over both channels, then dimensions)
+// channels then dim:    CHout CHin ((Aout Bout) (Ain Bin))
+
 
 int Kronecker (int i, int j)
 {
@@ -131,7 +439,7 @@ float WeightedSum (float values[], float weights [], float bias, size_t length)
     return accumulated;
 };
 
-
+// TODO: Fix Gradient functions memory leak (g is not deleted in function)
 float MeanSquaredError (float output [], float expected [], size_t n)
 {
     float total = 0.0;
@@ -184,6 +492,32 @@ float* CrossEntropyGradient (float output [], float expected [], size_t n)
     return g;
 };
 
+float CrossEntropy (const Tensor <float, 3>& output, const Tensor <float, 3>& expected)
+{
+    float total = 0.0;
+    float epsilon = 0.01;
+
+    uint chs = output.dimensions [0];
+    uint rows = output.dimensions [1];
+    uint cols = output.dimensions [2];
+
+    for (uint i = 0; i < chs; i++)
+        for (uint j = 0; j < rows; j++)
+            for (uint k = 0; k < cols; k++)
+                total += expected [i][j][k] * log (output [i][j][k] + epsilon);
+
+    return -total;
+};
+
+template <size_t Dim>
+void CrossEntropyGradient (const Tensor <float, Dim>& output, const Tensor <float, Dim>& expected, Tensor <float, Dim>& g) 
+{
+    for (uint i = 0; i < output.length; i++)
+    {
+        g.elements [i] = output.elements [i] - expected.elements [i];
+    };
+};
+
 template <size_t depth>
 struct Random 
 {
@@ -234,154 +568,105 @@ struct Random <1>
     };
 };
 
+template <size_t Dim>
+void InitialiseKernel (Random <1>* r, Tensor <float, Dim + 1>* kernel, uint index [Dim + 1])
+{
+    if (index [0] != index [1])
+    {
+        (*kernel) [index] = 0.0;
+    }
+    else
+    {
+        (*kernel) [index] = r -> RandomWeight ();
+        // (*kernel) [index] = 1.0;
+    };
+};
+
+template <size_t Dim>
 struct ConvolutionLayer 
 {
-    // TODO:
+    // TODO: make everything general using iterate and convolve
 
-    struct { size_t chs, rows, cols; } in_dim;
-    struct { size_t chs, rows, cols; } out_dim;
-    struct { size_t out, in, rows, cols; } k_dim;
+    Tensor <float, Dim>* output;
+    Tensor <float, Dim + 1>* kernel;
 
-    struct { uint row, col; } padding;
-
-    Tensor <float, 3>* output;
-    Tensor <float, 4>* kernel;
+    ConvolutionType type;
+    uint downsample;
 
     ConvolutionLayer 
     (
-        Tensor <float, 4>* initial_kernel, 
-        size_t input_dim [3], 
-        size_t output_dim [3],
-        size_t kernel_dim [4], 
+        Tensor <float, Dim + 1>* initial_kernel, 
+        size_t input_dim [Dim], 
+        size_t output_dim [Dim],
+        size_t kernel_dim [Dim + 1], 
         Random <1>* r, 
-        ConvolutionType type
+        ConvolutionType type,
+        uint downsample
     )
+        : type {type}, downsample {downsample}
     {
-
-        in_dim.chs = input_dim [0];
-        in_dim.rows = input_dim [1];
-        in_dim.cols = input_dim [2];
-
-        out_dim.chs = output_dim [0];
-        out_dim.rows = output_dim [1];
-        out_dim.cols = output_dim [2];
-
-        k_dim.in = kernel_dim [0];
-        k_dim.out = kernel_dim [1];
-        k_dim.rows = kernel_dim [2];
-        k_dim.cols = kernel_dim [3];
-
-        output = new Tensor <float, 3> (output_dim);
-        kernel = new Tensor <float, 4> (kernel_dim);
+        output = new Tensor <float, Dim> (output_dim);
+        kernel = new Tensor <float, Dim + 1> (kernel_dim);
 
         if (initial_kernel == nullptr)
         {
-            for (uint i = 0; i < out_dim.chs; i++)
-                for (uint j = 0; j < in_dim.chs; j++)
-                    for (uint k = 0; k < k_dim.rows; k++)
-                        for (uint l = 0; l < k_dim.cols; l++)
-                        {
-                            if (i != j)
-                            {
-                                (*kernel) [i][j][k][l] = 0.0;
-                            }
-                            else
-                            {
-                                (*kernel) [i][j][k][l] = r -> RandomWeight ();
-                            };
-                        };
+            typedef void (*KernelInitialiser) (Random <1>*, Tensor <float, Dim + 1>*, uint [Dim + 1]);
+
+            Iterate <KernelInitialiser, Random <1>*, Tensor <float, Dim + 1>*, Dim + 1> (InitialiseKernel <Dim>, r, kernel, kernel_dim);
         }
         else 
         {
-            for (uint i = 0; i < out_dim.chs; i++)
-                for (uint j = 0; j < in_dim.chs; j++)
-                    for (uint k = 0; k < k_dim.rows; k++)
-                        for (uint l = 0; l < k_dim.cols; l++)
-                        {
-                            (*kernel) [i][j][k][l] = (*initial_kernel) [i][j][k][l];
-                        };
-        };
-
-        /* 
-        if input has width m and kernel has width k
-
-        if no zero padding (VALID convolution):
-            output has width                           m - k + 1 
-
-        if zero padding (SAME convolution):
-            enough zeroes added to maintain size
-            output width = input width                 m
-
-        if zero padding (FULL convolution):
-            enough zeroes added so that each input pixel is visited k times
-            output width                               m + k - 1
-
-        */
-
-        switch (type)
-        {
-            case valid:       
-                padding.row = 0;     
-                padding.col = 0;
-                break;
-
-            case optimal:     
-                padding.row = k_dim.rows / 3;      
-                padding.col = k_dim.rows / 3;
-                break;
-
-            case same:        
-                padding.row = k_dim.rows / 2;      
-                padding.col = k_dim.cols / 2;
-                break;
-
-            case full:        
-                padding.row = k_dim.rows - 1;      
-                padding.col = k_dim.cols - 1;
-                break;
+            kernel -> SetElements (initial_kernel);
         };
     };
 
-
-    void Convolve (Tensor <float, 3>& input, uint downsample = 1) 
+    void Propagate (const Tensor <float, Dim>& input) 
     {
-        if (in_dim.rows != input.dimensions [1]) std::cout << "WARNING: bad convolution input dimensions" << std::endl;
-        if (in_dim.cols != input.dimensions [2]) std::cout << "WARNING: bad convolution input dimensions" << std::endl;
-
-        for (uint i = 0; i < out_dim.chs; i++)
-            for (uint j = 0; j < out_dim.rows; j++)
-                for (uint k = 0; k < out_dim.cols; k++)
-                {
-                    float x = 0.0;
-                
-                    for (uint l = 0; l < in_dim.chs; l++)
-                        for (int m = 0; m < k_dim.rows; m++)
-                            for (int n = 0; n < k_dim.cols; n++)
-                            {
-                                int row = j * downsample + m - padding.row;
-                                int col = k * downsample + n - padding.col;
-
-                                if (row < 0 || row >= in_dim.rows) continue;
-                                if (col < 0 || col >= in_dim.cols) continue;
-
-                                x += input [l] [row] [col] * (*kernel) [i][l][m][n];
-                            };
-
-                    (*output) [i][j][k] = x;
-                };
+        Convolve <Dim, false, false> (input, (*kernel), (*output), type, downsample);
     };
 
+    //TODO: 
+    // void BackPropagate (const Tensor <float, Dim>& input, const Tensor <float, Dim>& expected) 
+    // {
+    //     Propagate (input);
+
+    //     Tensor <float, Dim> input_gradient (input.dimensions);
+    //     Tensor <float, Dim> output_gradient (output -> dimensions);
+    //     Tensor <float, Dim + 1> kernel_gradient (kernel -> dimensions);
+
+    //     Tensor <float, Dim> flipped_input = input.Copy (); // TODO: calculate dimensions of flipped tensor
+    //     Tensor <float, Dim + 1> flipped_kernel = (*kernel).Copy ();
+
+    //     flipped_input.Flip ();
+    //     flipped_kernel.Flip ();
+
+    //     CrossEntropyGradient ((*output), expected, output_gradient);
+
+    //     Convolve <Dim> (output_gradient, flipped_kernel, input_gradient, type, downsample);
+    //     Convolve <Dim> (output_gradient, flipped_input, kernel_gradient, type, downsample);
+    //     //                 input             kernel         output
+
+    //     for (uint i = 0; i < kernel -> length; i++)
+    //     {        
+    //         kernel -> elements [i] += kernel_gradient.elements [i];
+    //     };
+    // };
+
+    #if DEBUG_LEVEL == 1
     void PrintKernel () 
     {
         std::cout << std::endl;
-        for (uint i = 0; i < out_dim.chs; i++)
+        std::cout << "Kernel: " << std::endl;
+
+        for (uint i = 0; i < kernel -> dimensions [0]; i++)
         {
-            for (uint k = 0; k < k_dim.rows; k++)
+            for (uint k = 0; k < kernel -> dimensions [2]; k++)
             {
-                for (uint j = 0; j < in_dim.chs; j++)
+                for (uint j = 0; j < kernel -> dimensions [1]; j++)
                 {
-                    for (uint l = 0; l < k_dim.cols; l++)
+                    for (uint l = 0; l < kernel -> dimensions [3]; l++)
                     {
+                        // Crops each element to 8 characters long so display is uniform
                         std::string element = std::to_string ((*kernel) [i][j][k][l]).substr (0, 8);
                         std::cout << element << "  ";
                         for (uint m = 0; m < 8 - element.length (); m++)
@@ -397,15 +682,18 @@ struct ConvolutionLayer
         };      
     };
 
-    void PrintInput (Tensor <float, 3>& input) 
+    void PrintInput (const Tensor <float, 3>& input) 
     {
         std::cout << std::endl;
-        for (uint j = 0; j < in_dim.rows; j++)
+        std::cout << "Input: " << std::endl;
+
+        for (uint j = 0; j < input.dimensions [1]; j++)
         {
-            for (uint i = 0; i < in_dim.chs; i++)
+            for (uint i = 0; i < input.dimensions [0]; i++)
             {
-                for (uint k = 0; k < in_dim.cols; k++)
+                for (uint k = 0; k < input.dimensions [2]; k++)
                 {
+                    // Crops each element to 8 characters long so display is uniform
                     std::string element = std::to_string (input [i][j][k]).substr (0, 8);
                     std::cout << element << "  ";
                     for (uint l = 0; l < 8 - element.length (); l++)
@@ -423,12 +711,15 @@ struct ConvolutionLayer
     void PrintOutput () 
     {
         std::cout << std::endl;
-        for (uint j = 0; j < out_dim.rows; j++)
+        std::cout << "Output: " << std::endl;
+
+        for (uint j = 0; j < output -> dimensions [1]; j++)
         {
-            for (uint i = 0; i < out_dim.chs; i++)
+            for (uint i = 0; i < output -> dimensions [0]; i++)
             {
-                for (uint k = 0; k < out_dim.cols; k++)
+                for (uint k = 0; k < output -> dimensions [2]; k++)
                 {
+                    // Crops each element to 8 characters long so display is uniform
                     std::string element = std::to_string ((*output) [i][j][k]).substr (0, 8);
                     std::cout << element << "  ";
                     for (uint l = 0; l < 8 - element.length (); l++)
@@ -442,6 +733,7 @@ struct ConvolutionLayer
         };
         std::cout << std::endl;
     };
+    #endif
 };
 
 
@@ -508,9 +800,11 @@ struct Layer
 
     Layer () {};
 
+    #if DEBUG_LEVEL == 1
     Layer (const Layer &l) {
         std::cout << "Copying Layer! " << std::endl;
     };
+    #endif
 
     ~Layer ()
     {
@@ -708,6 +1002,7 @@ struct Network
         return output;
     };
 
+    #if DEBUG_LEVEL == 1
     void PrintLayer (Layer <depth>* l) 
     {
         if (l == nullptr)
@@ -802,6 +1097,7 @@ struct Network
             std::cout << std::endl;
         };
     };
+    #endif
 
     float Regulariser () 
     {
@@ -1491,10 +1787,10 @@ void run_net ()
     };
 
     // Train Network
-    float* costs = network.GD_Basic (input, expected, size);
+    // float* costs = network.GD_Basic (input, expected, size);
     // float* costs = network.GD_Stochastic (input, expected, size, batch_size);
     // float* costs = network.GD_StochasticMomentum (input, expected, size, batch_size);
-    // float* costs = network.GD_StochasticNesterov (input, expected, size, batch_size);
+    float* costs = network.GD_StochasticNesterov (input, expected, size, batch_size);
     // float* costs = network.GD_RMSProp (input, expected, size, batch_size);
     // float* costs = network.GD_RMSPropNesterov (input, expected, size, batch_size);
 
@@ -1527,13 +1823,144 @@ void test_tensor ()
         std::cout << T [1][2][0] << std::endl; 
     };
 };
+    
+float test (float x, float y, uint index []) 
+{
+    std::cout << "test: " << x << std::endl;
+    return x;
+};
 
-void test_convolution () 
+template <size_t N>
+void test1 (float in [], float out [], uint index []) 
+{   
+    for (int i = 0; i < N; i++)
+        std::cout << index [i];
+    std::cout << std::endl;
+};
+
+void test2 (Tensor <float, 3>& in, Tensor <float, 3>& out, uint index []) 
+{
+    out [index] = in [index];
+    out.PrintElements ();
+};
+
+void test_iterate ()
+{
+    typedef float (*F) (float, float, uint []);
+
+    typedef void (*F1) (float[], float[], uint []);
+
+    typedef void (*F2) (Tensor <float, 3>&, Tensor <float, 3>&, uint []);
+
+    size_t dimensions [3] = {2, 3, 4};
+
+    float data = 3.1;
+    float out = 0.0;
+
+    float data1 [24];
+    float out1 [24];
+    for (uint i = 0; i < 24; i++)
+        data1 [i] = (i % 2 == 1) ? 1.0 : 2.0;
+
+    Tensor <float, 3> data2 (dimensions, data1);
+    Tensor <float, 3> out2 (dimensions);
+
+    Iterate <F, float, float, 3> (test, data, out, dimensions);
+    Iterate <F1, float [24], float [24], 3> (test1 <3>, data1, out1, dimensions);
+    Iterate <F2, Tensor <float, 3>&, Tensor <float, 3>&, 3> (test2, data2, out2, dimensions);
+};
+
+void test_convolve ()
 {
     size_t input_dim [3] = {3, 4, 4};
     size_t output_dim [3] = {3, 4, 4};
     size_t kernel_dim [4] = {3, 3, 2, 2};
 
+    std::mt19937 generator (SEED);
+    // std::uniform_real_distribution <float> distribution (0.0, 1.0);
+
+    size_t length = 1;
+    for (uint i = 0; i < 3; i++)
+    {
+        length *= input_dim [i];
+    };
+
+    std::normal_distribution <float> distribution (0.0, 1.0);
+
+    float input_elements [length];
+    for (uint i = 0; i < length; i++)
+    {
+        // input_elements [i] = distribution (generator);
+        input_elements [i] = 2.0;
+    };
+
+    length = 1;
+    for (uint i = 0; i < 4; i++)
+    {
+        length *= kernel_dim [i];
+    };
+
+    distribution = std::normal_distribution <float> (0.0, 1.0);
+
+    float kernel_elements [length];
+    for (uint i = 0; i < length; i++)
+    {
+        // kernel_elements [i] = distribution (generator);
+        kernel_elements [i] = 2.0;
+    };
+
+
+    Tensor <float, 3> input (input_dim, input_elements);
+    Tensor <float, 4> kernel (kernel_dim, kernel_elements);
+    Tensor <float, 3> output (output_dim);
+
+    Convolve <2, true, false> (input, kernel, output, same, 1);
+
+    output.PrintElements ();
+
+
+    size_t no_CH_input_dim [3] = {4, 4, 4};
+    size_t no_CH_output_dim [3] = {4, 4, 4};
+    size_t no_CH_kernel_dim [3] = {2, 2, 2};
+
+    size_t no_CH_length = 1;
+    for (uint i = 0; i < 3; i++)
+    {
+        no_CH_length *= no_CH_input_dim [i];
+    };
+
+    float no_CH_input_elements [no_CH_length];
+    for (uint i = 0; i < no_CH_length; i++)
+    {
+        no_CH_input_elements [i] = 2.0;
+    };
+
+    no_CH_length = 1;
+    for (uint i = 0; i < 3; i++)
+    {
+        no_CH_length *= no_CH_kernel_dim [i];
+    };
+
+    float no_CH_kernel_elements [no_CH_length];
+    for (uint i = 0; i < no_CH_length; i++)
+    {
+        no_CH_kernel_elements [i] = 2.0;
+    };
+
+    Tensor <float, 3> no_CH_input (no_CH_input_dim, no_CH_input_elements);
+    Tensor <float, 3> no_CH_kernel (no_CH_kernel_dim, no_CH_kernel_elements);
+    Tensor <float, 3> no_CH_output (no_CH_output_dim);
+
+    Convolve <3, false, false> (no_CH_input, no_CH_kernel, no_CH_output, same, 1);
+
+    no_CH_output.PrintElements ();
+};
+
+void test_convolution_layer () 
+{
+    size_t input_dim [3] = {3, 4, 4};
+    size_t output_dim [3] = {3, 4, 4};
+    size_t kernel_dim [4] = {3, 3, 2, 2};
 
     std::mt19937 generator (SEED);
     std::uniform_real_distribution <float> distribution (0.0, 1.0);
@@ -1547,27 +1974,36 @@ void test_convolution ()
     float input_elements [length];
     for (uint i = 0; i < length; i++)
     {
-        input_elements [i] = distribution (generator);
-        // input_elements [i] = 1.0;
+        // input_elements [i] = distribution (generator);
+        input_elements [i] = 1.0;
     };
 
     Tensor <float, 3> input (input_dim, input_elements);
+    Tensor <float, 3> expected (input_dim, input_elements);
 
-    Random <1>* r = new Random <1> (16, 1000);
+    Random <1>* r = new Random <1> (16, SEED);
+    uint downsampling = 1;
 
-    ConvolutionLayer layer (nullptr, input_dim, output_dim, kernel_dim, r, same);
-    layer.PrintKernel ();
-    layer.PrintInput (input);
-    layer.Convolve (input, 1);
-    layer.PrintOutput ();
+    // ConvolutionLayer <2> layer (nullptr, input_dim, output_dim, kernel_dim, r, same, downsampling);
+    // layer.PrintKernel ();
+    // layer.PrintInput (input);
+    // layer.Propagate (input);
+    // layer.PrintOutput ();
+    // layer.BackPropagate (input, expected);
+    std::cout << "that happened" << std::endl;
+    // layer.PrintKernel ();
 };
 
 int main () 
 {
     // run_net ();
     // test_tensor ();
-    test_convolution ();
+    // test_iterate ();
+    test_convolve ();
+    // test_convolution_layer ();
 };
+
+// TODO: write better tensor print function
 
 // TODO: backpropagation for convolution layers
 
