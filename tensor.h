@@ -467,7 +467,7 @@ struct Tensor
 
     #if DEBUG_LEVEL == 1
 
-    void Print ()
+    void Print () const
     {
         size_t truncation_length = 2;
         size_t spacing = 2;

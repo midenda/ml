@@ -582,113 +582,49 @@ struct ConvolutionLayer
     };
 
     //TODO: 
-    // void BackPropagate (const Tensor <float, Dim>& input, const Tensor <float, Dim>& expected) 
-    // {
-    //     Propagate (input);
+    void BackPropagate (const Tensor <float, Dim>& input, const Tensor <float, Dim>& expected) 
+    {
+        Propagate (input);
 
-    //     Tensor <float, Dim> input_gradient (input.dimensions);
-    //     Tensor <float, Dim> output_gradient (output -> dimensions);
-    //     Tensor <float, Dim + 1> kernel_gradient (kernel -> dimensions);
+        Tensor <float, Dim> input_gradient (input.dimensions);
+        Tensor <float, Dim> output_gradient (output -> dimensions);
+        Tensor <float, Dim + 1> kernel_gradient (kernel -> dimensions);
 
-    //     Tensor <float, Dim> flipped_input = input.Copy (); // TODO: calculate dimensions of flipped tensor
-    //     Tensor <float, Dim + 1> flipped_kernel = (*kernel).Copy ();
+        Tensor <float, Dim> flipped_input = input.Copy (); // TODO: calculate dimensions of flipped tensor
+        Tensor <float, Dim + 1> flipped_kernel = (*kernel).Copy ();
 
-    //     flipped_input.Flip ();
-    //     flipped_kernel.Flip ();
+        flipped_input.Flip ();
+        flipped_kernel.Flip ();
 
-    //     CrossEntropyGradient ((*output), expected, output_gradient);
+        CrossEntropyGradient ((*output), expected, output_gradient);
 
-    //     Convolve <Dim> (output_gradient, flipped_kernel, input_gradient, type, downsample);
-    //     Convolve <Dim> (output_gradient, flipped_input, kernel_gradient, type, downsample);
-    //     //                 input             kernel         output
+        Convolve <Dim - 1, true, false> (output_gradient, flipped_kernel, input_gradient, type, downsample);
+        Convolve <Dim - 1, true, true>  (output_gradient, flipped_input, kernel_gradient, type, downsample);
+        //                              input             kernel         output
 
-    //     for (uint i = 0; i < kernel -> length; i++)
-    //     {        
-    //         kernel -> elements [i] += kernel_gradient.elements [i];
-    //     };
-    // };
+        for (uint i = 0; i < kernel -> length; i++)
+        {        
+            kernel -> elements [i] += kernel_gradient.elements [i];
+        };
+    };
 
     #if DEBUG_LEVEL == 1
+
     void PrintKernel () 
     {
-        std::cout << std::endl;
-        std::cout << "Kernel: " << std::endl;
-
-        for (uint i = 0; i < kernel -> dimensions [0]; i++)
-        {
-            for (uint k = 0; k < kernel -> dimensions [2]; k++)
-            {
-                for (uint j = 0; j < kernel -> dimensions [1]; j++)
-                {
-                    for (uint l = 0; l < kernel -> dimensions [3]; l++)
-                    {
-                        // Crops each element to 8 characters long so display is uniform
-                        std::string element = std::to_string ((*kernel) [i][j][k][l]).substr (0, 8);
-                        std::cout << element << "  ";
-                        for (uint m = 0; m < 8 - element.length (); m++)
-                        {
-                            std::cout << " ";
-                        };
-                    };
-                    std::cout << "\t";
-                };
-                std::cout << std::endl; 
-            };
-            std::cout << "\n" << std::endl;
-        };      
+        kernel -> Print ();    
     };
 
     void PrintInput (const Tensor <float, 3>& input) 
     {
-        std::cout << std::endl;
-        std::cout << "Input: " << std::endl;
-
-        for (uint j = 0; j < input.dimensions [1]; j++)
-        {
-            for (uint i = 0; i < input.dimensions [0]; i++)
-            {
-                for (uint k = 0; k < input.dimensions [2]; k++)
-                {
-                    // Crops each element to 8 characters long so display is uniform
-                    std::string element = std::to_string (input [i][j][k]).substr (0, 8);
-                    std::cout << element << "  ";
-                    for (uint l = 0; l < 8 - element.length (); l++)
-                    {
-                        std::cout << " ";
-                    };
-                };
-                std::cout << "\t";
-            };
-            std::cout << std::endl;
-        };
-        std::cout << std::endl;
+        input.Print ();
     };
 
     void PrintOutput () 
     {
-        std::cout << std::endl;
-        std::cout << "Output: " << std::endl;
-
-        for (uint j = 0; j < output -> dimensions [1]; j++)
-        {
-            for (uint i = 0; i < output -> dimensions [0]; i++)
-            {
-                for (uint k = 0; k < output -> dimensions [2]; k++)
-                {
-                    // Crops each element to 8 characters long so display is uniform
-                    std::string element = std::to_string ((*output) [i][j][k]).substr (0, 8);
-                    std::cout << element << "  ";
-                    for (uint l = 0; l < 8 - element.length (); l++)
-                    {
-                        std::cout << " ";
-                    };
-                };
-                std::cout << "\t";
-            };
-            std::cout << std::endl;
-        };
-        std::cout << std::endl;
+        output -> Print ();
     };
+
     #endif
 };
 
@@ -2083,14 +2019,13 @@ void test_convolution_layer ()
     Random <1>* r = new Random <1> (16, SEED);
     uint downsampling = 1;
 
-    // ConvolutionLayer <2> layer (nullptr, input_dim, output_dim, kernel_dim, r, same, downsampling);
-    // layer.PrintKernel ();
+    ConvolutionLayer <3> layer (nullptr, input_dim, output_dim, kernel_dim, r, same, downsampling);
+    layer.PrintKernel ();
     // layer.PrintInput (input);
-    // layer.Propagate (input);
-    // layer.PrintOutput ();
-    // layer.BackPropagate (input, expected);
-    std::cout << "that happened" << std::endl;
-    // layer.PrintKernel ();
+    layer.Propagate (input);
+    layer.PrintOutput ();
+    layer.BackPropagate (input, expected);
+    layer.PrintKernel ();
 };
 
 #endif
@@ -2100,8 +2035,8 @@ int main ()
     // run_net ();
     // test_tensor ();
     // test_iterate ();
-    test_convolve ();
-    // test_convolution_layer ();
+    // test_convolve ();
+    test_convolution_layer ();
 };
 
 // TODO: write better tensor print function
