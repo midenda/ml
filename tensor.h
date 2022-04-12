@@ -206,7 +206,7 @@ struct Tensor
 
     #if DEBUG_LEVEL == 1
 
-    const char* name;
+    const char* name = "default";
 
     #endif
 
@@ -433,14 +433,44 @@ struct Tensor
         T flipped_elements [length];
         for (uint i = 0; i < length; i++)
         {
-            flipped_elements [i] = elements [length - i];
+            flipped_elements [i] = elements [length - 1 - i];
         };
 
         size_t flipped_dimensions [N];
         for (uint i = 0; i < N; i++)
         {
-            flipped_dimensions [i] = dimensions [N - i];
+            flipped_dimensions [i] = dimensions [N - 1 - i];
         };
+
+        layer = 0;
+
+        for (int i = 0; i < N; i++)
+        {
+            dimensions [i] = flipped_dimensions [i];
+        };
+
+        length = dimensions [0];
+        size_t dim [N - 1];
+        size_t separation = 1;
+
+        for (int i = 0; i < N - 1; i++)
+        {
+            size_t d = dimensions [i + 1];
+
+            dim [i] = d;
+            separation *= d;
+            length *= d;
+        };
+
+        for (int i = 0; i < length; i++)
+        {
+            elements [i] = flipped_elements [i];
+        };
+
+        size_t l = dimensions [0];
+
+        // If creation fails, children won't be left dangling
+        Tensor <T, N - 1>** temporary = new Tensor <T, N - 1>* [l];
 
         if (children != nullptr)
         {
@@ -451,12 +481,12 @@ struct Tensor
             delete [] children;
         };
 
-        if  (layer == 0)
-        {
-            delete [] elements;
-        };
+        children = temporary;
 
-        Tensor (flipped_dimensions, flipped_elements);
+        for (int i = 0; i < l; i++)
+        {
+            children [i] = new Tensor <T, N - 1> (dim, (flipped_elements + separation * i), 1);
+        };
     };
 
     const Tensor <T, N> Copy () const
@@ -469,7 +499,7 @@ struct Tensor
 
     void Print () const
     {
-        size_t truncation_length = 2;
+        size_t truncation_length = 8;
         size_t spacing = 2;
 
         std::cout << "Printing:     " << name << "... " << std::endl;
