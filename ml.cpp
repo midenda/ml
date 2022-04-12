@@ -2046,12 +2046,21 @@ int main ()
     test_convolution_layer ();
 };
 
-// TODO: write better tensor print function
+// TODO: combine layers and convolutional layers into network object
 
-// TODO: backpropagation for convolution layers
+/*
+Rename Network -> FullyConnectedLayers
+
+New Network contains:   
+                ConvolutionalLayers
+                FullyConnectedLayers
+                RecurrentLayers
+
+Same backpropagation algorithms/structure etc for FullyConnectedLayers, pass final gradient from one stage to the next
+*/
 
 // TODO: switch to using Tensor for weights etc
-// TODO: check large data not being copie unnecessarily eg pass into functions by reference
+// TODO: check large data not being copied unnecessarily eg pass into functions by reference
 
 // TODO: improve python graphing
 // TODO: testing, find decent default values
@@ -2066,15 +2075,3 @@ int main ()
 // TODO: CUDA? or openCL
 
 // TODO: RNN
-
-//TODO: 
-/*
-Rename Network -> FullyConnectedLayers
-
-New Network contains:   
-                ConvolutionalLayers
-                FullyConnectedLayers
-                RecurrentLayers
-
-Same backpropagation algorithms/structure etc for FullyConnectedLayers, pass final gradient from one stage to the next
-*/
