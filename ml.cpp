@@ -2047,6 +2047,7 @@ int main ()
 };
 
 // TODO: combine layers and convolutional layers into network object
+// TODO: split tests into separate file
 
 /*
 Rename Network -> FullyConnectedLayers
