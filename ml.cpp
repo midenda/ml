@@ -569,8 +569,6 @@ void InitialiseKernel (Random <1>* r, Tensor <float, Dim + (2 * Chns)>* kernel, 
 template <size_t Dim, bool Chns>
 struct ConvolutionLayer 
 {
-    // TODO: make everything general using iterate and convolve
-
     Tensor <float, Dim + Chns>* output;
     Tensor <float, Dim + (2 * Chns)>* kernel;
 
@@ -624,7 +622,7 @@ struct ConvolutionLayer
         MeanSquaredErrorGradient <float, Dim, Chns> (*output, expected, output_gradient);
         // float loss = MeanSquaredError <float, Dim, Chns> (*output, expected);
 
-        // TODO: figure out why repeated backpropagation sends every element of the kernel to +-inf
+        //! TODO: why is repeated backpropagation sending every element of the kernel to +-inf?
         Convolve <Dim, Chns, false> (output_gradient, flipped_kernel, input_gradient, type, downsample);
         // expected.Print ("expected");
         // (*output).Print ("output");
@@ -690,7 +688,7 @@ struct Layer
     {
         size.M = M;
         size.N = N;
-        // TODO: make tensor?
+
         activations = new float [M]();
         x = new float [M]();
 
@@ -777,7 +775,6 @@ struct Network
     Random <depth>* r;
     const int seed;
 
-    // TODO: make tensor?
     float** weight_gradients [depth];
     float* bias_gradients [depth];
 
@@ -837,7 +834,7 @@ struct Network
             activation_fn f = functions [i];
             activation_fn f_prime = derivatives [i];
 
-            // Initialise gradients //TODO: make tensor?
+            // Initialise gradients
             float** w = new float* [M];
             for (int j = 0; j < M; j++)
             {
@@ -2110,6 +2107,8 @@ int main ()
     test_convolution_layer ();
 };
 
+// ! FIXME: identify issue with Convolution Backpropagation
+
 // TODO: combine layers and convolutional layers into network object
 // TODO: split tests into separate file
 
@@ -2124,7 +2123,7 @@ New Network contains:
 Same backpropagation algorithms/structure etc for FullyConnectedLayers, pass final gradient from one stage to the next
 */
 
-// TODO: switch to using Tensor for weights etc
+// TODO: switch to using Tensor for connected layer weights, biases etc
 // TODO: check large data not being copied unnecessarily eg pass into functions by reference
 
 // TODO: improve python graphing
