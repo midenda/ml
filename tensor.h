@@ -11,9 +11,9 @@
 
 typedef unsigned int uint;
 
-typedef void (*Interim) (uint, size_t);
+typedef void (*Interim) (const uint, size_t);
 
-void nullfn (uint layer, size_t N) {};
+void nullfn (const uint layer, size_t N) {};
 
 void alternating_sort (const uint input [], uint output [], size_t N)
 {   
@@ -74,7 +74,7 @@ void __iteration
     InputType x, 
     OutputType y, 
     size_t dimensions [N], 
-    uint* index, 
+    uint* const index, 
     uint l, 
     uint offset = 0, 
     Interim interim = nullfn
@@ -106,17 +106,19 @@ void __iteration
     };
 };
 
-template <typename FunctionType, typename InputType, typename OutputType, size_t N>
-void Iterate (FunctionType f, InputType x, OutputType y, size_t dimensions [N], Interim interim = nullfn)
+template <typename InputType, typename OutputType, size_t N>
+void Iterate (void (*f) (const InputType, OutputType, uint* const), InputType x, OutputType y, size_t dimensions [N], Interim interim = nullfn)
 {
     uint l = 0;
     uint* index = new uint [N]{};
 
-    __iteration <FunctionType, InputType, OutputType, N> (f, x, y, dimensions, index, l, 0, interim);
+    typedef void (*IterationFunction) (const InputType, OutputType, uint* const);
+
+    __iteration <IterationFunction, InputType, OutputType, N> (f, x, y, dimensions, index, l, 0, interim);
 };
 
-template <typename FunctionType, typename InputType, typename OutputType, size_t M, size_t N>
-void Iterate (FunctionType f, InputType x, OutputType y, size_t dimensions [M], uint outer_index [N], Interim interim = nullfn)
+template <typename InputType, typename OutputType, size_t M, size_t N>
+void Iterate (void (*f) (const InputType, OutputType, uint* const), InputType x, OutputType y, size_t dimensions [M], uint* const outer_index, Interim interim = nullfn)
 {
     uint l = 0;
     uint* index = new uint [M + N]{};
@@ -126,10 +128,12 @@ void Iterate (FunctionType f, InputType x, OutputType y, size_t dimensions [M], 
         index [i] = outer_index [i];
     };
 
-    __iteration <FunctionType, InputType, OutputType, M> (f, x, y, dimensions, index, l, N, interim);
+    typedef void (*IterationFunction) (const InputType, OutputType, uint* const);
+
+    __iteration <IterationFunction, InputType, OutputType, M> (f, x, y, dimensions, index, l, N, interim);
 };
 
-void print_separator (uint layer, size_t N)
+void print_separator (const uint layer, const size_t N)
 {
     if (layer < N)
     {
@@ -159,11 +163,11 @@ struct PrintInput
 template <typename T, size_t N>
 struct PrintFunction
 {
-    typedef void (*f) (const PrintInput <T, N>&, void*, uint []);
+    typedef void (*f) (const PrintInput <T, N>&, void*, uint* const);
 };
 
 template <typename T, size_t N>
-void PrintElement (const PrintInput <T, N>& input, void* output, uint idx [N])
+void PrintElement (const PrintInput <T, N>& input, void* output, uint* idx)
 {
     const Tensor <T, N>& tensor = input.tensor;
     size_t truncation_length = input.truncation_length;
@@ -191,7 +195,7 @@ void PrintTensor (const Tensor <T, N>& tensor, size_t truncation_length = 8, siz
     size_t dim [N];
     alternating_sort (tensor.dimensions, dim, N);
 
-    Iterate <typename PrintFunction <T, N>::f, PrintInput <T, N>, void*, N> (PrintElement, input, nullptr, dim, print_separator);
+    Iterate <const PrintInput <T, N>&, void*, N> (PrintElement, input, nullptr, dim, print_separator);
 };
 
 template <typename T, size_t N>
@@ -213,7 +217,7 @@ struct Tensor
     Tensor () {};
 
     // Parent Constructor
-    Tensor (const size_t input_dimensions [N], T e [])
+    Tensor (const size_t input_dimensions [N], const T e [])
     {
         layer = 0;
 
@@ -251,7 +255,7 @@ struct Tensor
     };
 
     // Child Constructor: shouldn't be called explicitly
-    Tensor (const size_t input_dimensions [N], T* e, uint layer)
+    Tensor (const size_t input_dimensions [N], T* e, const uint layer)
         : layer {layer}
     {
         for (int i = 0; i < N; i++)
@@ -331,7 +335,7 @@ struct Tensor
 
     Tensor (const Tensor& t) = delete;
 
-    T& index (uint indices [N])
+    T& index (const uint indices [N])
     {
         uint position = 0;
 
@@ -349,7 +353,7 @@ struct Tensor
         return elements [position];
     };
 
-    const T& index (uint indices [N]) const
+    const T& index (const uint indices [N]) const
     {
         uint position = 0;
 
@@ -367,22 +371,22 @@ struct Tensor
         return elements [position];
     };
 
-    Tensor <T, N - 1>& operator[] (uint idx) 
+    Tensor <T, N - 1>& operator[] (const uint idx) 
     {
         return *(children [idx]);
     };
 
-    const Tensor <T, N - 1>& operator[] (uint idx) const 
+    const Tensor <T, N - 1>& operator[] (const uint idx) const 
     {
         return *(children [idx]);
     };
 
-    T& operator[] (uint indices [N])
+    T& operator[] (const uint indices [N])
     {
         return index (indices);
     };
 
-    const T& operator[] (uint indices [N]) const 
+    const T& operator[] (const uint indices [N]) const 
     {
         return index (indices);
     };
@@ -409,7 +413,7 @@ struct Tensor
         };
     };
 
-    void SetElements (const T input [], size_t input_length)
+    void SetElements (const T input [], const size_t input_length)
     {
         if (input_length == length) 
         {
@@ -420,7 +424,7 @@ struct Tensor
         };
     };
 
-    void SetElements (T input)
+    void SetElements (const T input)
     {
         for (uint i = 0; i < length; i++)
         {
@@ -474,7 +478,7 @@ struct Tensor
 
         if (children != nullptr)
         {
-            for (size_t i = 0; i < dimensions [0]; i++)
+            for (size_t i = 0; i < dimensions [N - 1]; i++)
             {
                 delete children [i];
             };
@@ -497,12 +501,15 @@ struct Tensor
 
     #if DEBUG_LEVEL == 1
 
-    void Print () const
+    void Print (const char* printname = nullptr) const
     {
         size_t truncation_length = 8;
         size_t spacing = 2;
 
-        std::cout << "Printing:     " << name << "... " << std::endl;
+        if (printname != nullptr)
+            std::cout << "Printing:     " << printname << "... " << std::endl;
+        else if (name != nullptr)
+            std::cout << "Printing:     " << name << "... " << std::endl;
 
         PrintTensor <T, N> (*this, truncation_length, spacing);
 
@@ -550,7 +557,7 @@ struct Tensor <T, 1>
         };
     };
 
-    Tensor (const size_t dimensions [1], T* e, uint layer)
+    Tensor (const size_t dimensions [1], T* e, const uint layer)
         : layer {layer}
     {
         length = dimensions [0];
@@ -568,17 +575,17 @@ struct Tensor <T, 1>
 
     Tensor (const Tensor& t) = delete;
 
-    const T& operator[] (uint idx) const 
+    const T& operator[] (const uint idx) const 
     {
         return elements [idx];
     };
 
-    T& operator[] (uint idx) 
+    T& operator[] (const uint idx) 
     {
         return elements [idx];
     };
 
-    T& index (uint idx)
+    T& index (const uint idx)
     {
         return elements [idx];
     };
