@@ -500,6 +500,19 @@ void CrossEntropyGradient (const Tensor <T, Dim + Chns>& output, const Tensor <T
     };
 };
 
+template <typename T, size_t Dim, bool Chns>
+float Regulariser (const Tensor <T, Dim + (2 * Chns)>& input)
+{
+    float total = 0.0;
+
+    for (uint i = 0; i < input.length; i++)
+    {
+        total += pow (input.elements [i], 2);
+    };
+    
+    return total;
+};
+
 template <size_t depth>
 struct Random 
 {
@@ -575,6 +588,11 @@ struct ConvolutionLayer
     ConvolutionType type;
     uint downsample;
 
+    const float regularisation_factor;
+
+    float learning_rate;
+    const float base_learning_rate;
+
     ConvolutionLayer 
     (
         Tensor <float, Dim + (2 * Chns)>* initial_kernel, 
@@ -583,9 +601,15 @@ struct ConvolutionLayer
         size_t kernel_dim [Dim + (2 * Chns)], 
         Random <1>* r, 
         ConvolutionType type,
-        uint downsample
+        uint downsample,
+        float base_learning_rate = 1.0,
+        float regularisation_factor = 0.001
     )
-        : type {type}, downsample {downsample}
+        :   type {type}, 
+            downsample {downsample}, 
+            base_learning_rate {base_learning_rate}, 
+            learning_rate {base_learning_rate}, 
+            regularisation_factor {regularisation_factor}
     {
         output = new Tensor <float, Dim + Chns> (output_dim);
         kernel = new Tensor <float, Dim + (2 * Chns)> (kernel_dim);
@@ -605,7 +629,7 @@ struct ConvolutionLayer
         Convolve <Dim, Chns, false> (input, (*kernel), (*output), type, downsample);
     };
 
-    void BackPropagate (const Tensor <float, Dim + Chns>& input, const Tensor <float, Dim + Chns>& expected) 
+    float BackPropagate (const Tensor <float, Dim + Chns>& input, const Tensor <float, Dim + Chns>& expected) 
     {
         Propagate (input);
 
@@ -613,29 +637,37 @@ struct ConvolutionLayer
         Tensor <float, Dim + Chns> output_gradient (output -> dimensions);
         Tensor <float, Dim + (2 * Chns)> kernel_gradient (kernel -> dimensions);
 
-        Tensor <float, Dim + Chns> flipped_input = input.Copy ();
-        Tensor <float, Dim + (2 * Chns)> flipped_kernel = (*kernel).Copy ();
+        // Tensor <float, Dim + Chns> flipped_input = input.Copy ();
+        // Tensor <float, Dim + (2 * Chns)> flipped_kernel = (*kernel).Copy ();
 
-        // flipped_input.Flip ();
+        // flipped_input.Rotate ();
         // flipped_kernel.Flip ();
 
         MeanSquaredErrorGradient <float, Dim, Chns> (*output, expected, output_gradient);
-        // float loss = MeanSquaredError <float, Dim, Chns> (*output, expected);
+        float loss = MeanSquaredError <float, Dim, Chns> (*output, expected);
+        // float loss = MeanSquaredError <float, Dim, Chns> (*output, expected) + Regulariser <float, Dim, Chns> (*kernel);
 
-        //! TODO: why is repeated backpropagation sending every element of the kernel to +-inf?
-        Convolve <Dim, Chns, false> (output_gradient, flipped_kernel, input_gradient, type, downsample);
+        Convolve <Dim, Chns, false> (output_gradient, (*kernel), input_gradient, type, downsample);
         // expected.Print ("expected");
         // (*output).Print ("output");
 
         // output_gradient.Print ("output gradient");
-        Convolve <Dim, Chns, true>  (output_gradient, flipped_input, kernel_gradient, type, downsample);
-        // kernel_gradient.Print ("kernel gradient");
+        // ? some kind of issue with orientation - seems to be updating the wrong indexes
+        Convolve <Dim, Chns, true>  (input, output_gradient, kernel_gradient, type, downsample);
         //                              input             kernel         output
+
+        // (*kernel).Print ();
+
+        // kernel_gradient.Print ("kernel gradient");
+        kernel_gradient.Rotate ();
+        // ? this fixes it for some reason, note swapped order of argumments in Convolve (input, output_gradient)
 
         for (uint i = 0; i < kernel -> length; i++)
         {        
-            kernel -> elements [i] -= 0.1 * kernel_gradient.elements [i];
+            kernel -> elements [i] -= learning_rate * (kernel_gradient.elements [i]) + regularisation_factor * (kernel -> elements [i]);
         };
+
+        return loss;
     };
 
     #if DEBUG_LEVEL == 1
@@ -1759,6 +1791,7 @@ void test_tensor ()
 
     // T.Print ();
     // T.Flip ();
+    T.Rotate ();
     T.Print ();
 };
     
@@ -2056,10 +2089,12 @@ void test_convolution_layer ()
         length *= input_dim [i];
     };
 
-    Tensor <float, 3>** input = new Tensor <float, 3>* [10000];
-    Tensor <float, 3>** expected = new Tensor <float, 3>* [10000];
+    #define EXAMPLES 10000
 
-    for (uint i = 0; i < 10000; i++)
+    Tensor <float, 3>** input = new Tensor <float, 3>* [EXAMPLES];
+    Tensor <float, 3>** expected = new Tensor <float, 3>* [EXAMPLES];
+
+    for (uint i = 0; i < EXAMPLES; i++)
     {
         float input_elements [length];
         for (uint j = 0; j < length; j++)
@@ -2078,7 +2113,9 @@ void test_convolution_layer ()
 
     ConvolutionLayer <2, true> layer (nullptr, input_dim, output_dim, kernel_dim, r, same, downsampling);
 
-    for (uint i = 0; i < 10000; i++)
+    float costs [EXAMPLES];
+
+    for (uint i = 0; i < EXAMPLES; i++)
     {
         // layer.Propagate (input);
 
@@ -2086,11 +2123,25 @@ void test_convolution_layer ()
         // layer.PrintKernel ();
         // layer.PrintOutput ();
 
-        layer.BackPropagate (*(input [i]), *(expected [i]));
+        costs [i] = layer.BackPropagate (*(input [i]), *(expected [i]));
         // layer.PrintKernel ();
     };
 
     layer.PrintKernel ();
+
+    kernel.Print ("actual kernel");
+
+    // Process Results
+    std::ofstream out;
+    out.open ("losses.csv");
+
+    for (uint i = 0; i < EXAMPLES; i++) 
+    {
+        out << costs [i] << ",";
+    };
+    out.close ();
+
+    system ("python graph.py");
 };
 
 #endif

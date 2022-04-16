@@ -432,6 +432,26 @@ struct Tensor
         };
     };
 
+    void Rotate ()
+    {
+        T rotated_elements [length];
+
+        size_t spacing = dimensions [N - 1] * dimensions [N - 2];
+
+        for (uint i = 0; i < length / spacing; i++)
+        {
+            for (uint j = 0; j < spacing; j++)
+            {
+                rotated_elements [i * spacing + j] = elements [(i + 1) * spacing - 1 - j];
+            };
+        };
+
+        for (int i = 0; i < length; i++)
+        {
+            elements [i] = rotated_elements [i];
+        };
+    };
+
     void Flip ()
     {
         T flipped_elements [length];
