@@ -62,19 +62,19 @@ struct LossFunctionInput
 };
 
 
-template <size_t Dim, bool Chns, bool Backprop>
+template <typename T, size_t Dim, bool Chns, bool Backprop>
 struct ConvolutionInput
 {
-    const Tensor <float, Dim + Chns>& input;
-    const Tensor <float, Dim + ((2 - Backprop) * Chns)>& kernel;
+    const Tensor <T, Dim + Chns>& input;
+    const Tensor <T, Dim + ((2 - Backprop) * Chns)>& kernel;
 
     uint downsample;
     uint padding [Dim];
 
     ConvolutionInput 
     (
-        const Tensor <float, Dim + Chns>& input, 
-        const Tensor <float, Dim + ((2 - Backprop) * Chns)>& kernel, 
+        const Tensor <T, Dim + Chns>& input, 
+        const Tensor <T, Dim + ((2 - Backprop) * Chns)>& kernel, 
         ConvolutionType type = same, 
         uint downsample = 1
     )
@@ -130,8 +130,8 @@ struct ConvolutionInput
     };
 };
 
-template <size_t Dim, bool Chns, bool Backprop>
-void __inner_convolution_loop (const ConvolutionInput <Dim, Chns, Backprop>& conv_inpt, Tensor <float, Dim + ((1 + Backprop) * Chns)>& output, uint* const index) 
+template <typename T, size_t Dim, bool Chns, bool Backprop>
+void __inner_convolution_loop (const ConvolutionInput <T, Dim, Chns, Backprop>& conv_inpt, Tensor <T, Dim + ((1 + Backprop) * Chns)>& output, uint* const index) 
 {
     // index has form: [(ChOut, ChIn,) Out..., Kernel...]
 
@@ -189,8 +189,8 @@ void __inner_convolution_loop (const ConvolutionInput <Dim, Chns, Backprop>& con
     output [OutputIndex] += conv_inpt.input [InputIndex] * conv_inpt.kernel [KernelIndex];
 };
 
-template <size_t Dim, bool Chns, bool Backprop>
-void __outer_convolution_loop (const ConvolutionInput <Dim, Chns, Backprop>& conv_inpt, Tensor <float, Dim + ((1 + Backprop) * Chns)>& output, uint* const index) 
+template <typename T, size_t Dim, bool Chns, bool Backprop>
+void __outer_convolution_loop (const ConvolutionInput <T, Dim, Chns, Backprop>& conv_inpt, Tensor <T, Dim + ((1 + Backprop) * Chns)>& output, uint* const index) 
 {
     size_t kernel_dimensions [Dim];
     for (uint i = 0; i < Dim; i++)
@@ -200,8 +200,8 @@ void __outer_convolution_loop (const ConvolutionInput <Dim, Chns, Backprop>& con
 
     Iterate 
     <
-        const ConvolutionInput <Dim, Chns, Backprop>&, 
-        Tensor <float, Dim + ((1 + Backprop) * Chns)>&, 
+        const ConvolutionInput <T, Dim, Chns, Backprop>&, 
+        Tensor <T, Dim + ((1 + Backprop) * Chns)>&, 
         Dim, 
         Dim + (2 * Chns)
     > 
@@ -210,8 +210,8 @@ void __outer_convolution_loop (const ConvolutionInput <Dim, Chns, Backprop>& con
     );
 };
 
-template <size_t Dim, bool Chns, bool Backprop>
-void __channel_convolution_loop (const ConvolutionInput <Dim, Chns, Backprop>& conv_inpt, Tensor <float, Dim + ((1 + Backprop) * Chns)>& output, uint* const channels)
+template <typename T, size_t Dim, bool Chns, bool Backprop>
+void __channel_convolution_loop (const ConvolutionInput <T, Dim, Chns, Backprop>& conv_inpt, Tensor <T, Dim + ((1 + Backprop) * Chns)>& output, uint* const channels)
 {
     size_t output_dimensions [Dim];
     for (uint i = 0; i < Dim; i++)
@@ -221,8 +221,8 @@ void __channel_convolution_loop (const ConvolutionInput <Dim, Chns, Backprop>& c
 
     Iterate 
     <
-        const ConvolutionInput <Dim, Chns, Backprop>&, 
-        Tensor <float, Dim + ((1 + Backprop) * Chns)>&, 
+        const ConvolutionInput <T, Dim, Chns, Backprop>&, 
+        Tensor <T, Dim + ((1 + Backprop) * Chns)>&, 
         Dim, 
         2
     >
@@ -232,16 +232,16 @@ void __channel_convolution_loop (const ConvolutionInput <Dim, Chns, Backprop>& c
 };
 
 // Convolution with channels
-template <size_t Dim, bool Chns, bool Backprop>
+template <typename T, size_t Dim, bool Chns, bool Backprop>
 void Convolve (
-    const Tensor <float, Dim + Chns>& input, 
-    const Tensor <float, Dim + ((2 - Backprop) * Chns)>& kernel,
-          Tensor <float, Dim + ((1 + Backprop) * Chns)>& output, 
+    const Tensor <T, Dim + Chns>& input, 
+    const Tensor <T, Dim + ((2 - Backprop) * Chns)>& kernel,
+          Tensor <T, Dim + ((1 + Backprop) * Chns)>& output, 
     ConvolutionType type = same,
     uint downsample = 1
 )
 {
-    ConvolutionInput <Dim, Chns, Backprop> conv_inpt (input, kernel, type, downsample);
+    ConvolutionInput <T, Dim, Chns, Backprop> conv_inpt (input, kernel, type, downsample);
 
     output.SetElements (0.0);
 
@@ -266,8 +266,8 @@ void Convolve (
 
         Iterate 
         <
-            const ConvolutionInput <Dim, Chns, Backprop>&, 
-            Tensor <float, Dim + ((1 + Backprop) * Chns)>&, 
+            const ConvolutionInput <T, Dim, Chns, Backprop>&, 
+            Tensor <T, Dim + ((1 + Backprop) * Chns)>&, 
             2
         > 
         (
@@ -278,8 +278,8 @@ void Convolve (
     {
         Iterate 
         <
-            const ConvolutionInput <Dim, Chns, Backprop>&, 
-            Tensor <float, Dim + ((1 + Backprop) * Chns)>&, 
+            const ConvolutionInput <T, Dim, Chns, Backprop>&, 
+            Tensor <T, Dim + ((1 + Backprop) * Chns)>&, 
             Dim
         >
         (
@@ -563,8 +563,8 @@ struct Random <1>
     };
 };
 
-template <size_t Dim, bool Chns>
-void InitialiseKernel (Random <1>* r, Tensor <float, Dim + (2 * Chns)>* kernel, uint index [Dim + (2 * Chns)])
+template <typename T, size_t Dim, bool Chns>
+void InitialiseKernel (Random <1>* r, Tensor <T, Dim + (2 * Chns)>* kernel, uint index [Dim + (2 * Chns)])
 {
     if (Chns && (index [0] != index [1]))
     {
@@ -579,23 +579,23 @@ void InitialiseKernel (Random <1>* r, Tensor <float, Dim + (2 * Chns)>* kernel, 
 
 // ***---------  NETWORK LAYER DEFINITIONS  ---------*** //
 
-template <size_t Dim, bool Chns>
+template <typename T, size_t Dim, bool Chns>
 struct ConvolutionLayer 
 {
-    Tensor <float, Dim + Chns>* output;
-    Tensor <float, Dim + (2 * Chns)>* kernel;
+    Tensor <T, Dim + Chns>* output;
+    Tensor <T, Dim + (2 * Chns)>* kernel;
 
     ConvolutionType type;
     uint downsample;
 
-    const float regularisation_factor;
-
-    float learning_rate;
     const float base_learning_rate;
+    float learning_rate;
+
+    const float regularisation_factor;
 
     ConvolutionLayer 
     (
-        Tensor <float, Dim + (2 * Chns)>* initial_kernel, 
+        Tensor <T, Dim + (2 * Chns)>* initial_kernel, 
         size_t input_dim [Dim + Chns], 
         size_t output_dim [Dim + Chns],
         size_t kernel_dim [Dim + (2 * Chns)], 
@@ -611,12 +611,12 @@ struct ConvolutionLayer
             learning_rate {base_learning_rate}, 
             regularisation_factor {regularisation_factor}
     {
-        output = new Tensor <float, Dim + Chns> (output_dim);
-        kernel = new Tensor <float, Dim + (2 * Chns)> (kernel_dim);
+        output = new Tensor <T, Dim + Chns> (output_dim);
+        kernel = new Tensor <T, Dim + (2 * Chns)> (kernel_dim);
 
         if (initial_kernel == nullptr)
         {
-            Iterate <Random <1>*, Tensor <float, Dim + (2 * Chns)>*, Dim + (2 * Chns)> (InitialiseKernel <Dim, Chns>, r, kernel, kernel_dim);
+            Iterate <Random <1>*, Tensor <T, Dim + (2 * Chns)>*, Dim + (2 * Chns)> (InitialiseKernel <T, Dim, Chns>, r, kernel, kernel_dim);
         }
         else 
         {
@@ -624,36 +624,36 @@ struct ConvolutionLayer
         };
     };
 
-    void Propagate (const Tensor <float, Dim + Chns>& input) 
+    void Propagate (const Tensor <T, Dim + Chns>& input) 
     {
-        Convolve <Dim, Chns, false> (input, (*kernel), (*output), type, downsample);
+        Convolve <T, Dim, Chns, false> (input, (*kernel), (*output), type, downsample);
     };
 
-    float BackPropagate (const Tensor <float, Dim + Chns>& input, const Tensor <float, Dim + Chns>& expected) 
+    float BackPropagate (const Tensor <T, Dim + Chns>& input, const Tensor <T, Dim + Chns>& expected) 
     {
         Propagate (input);
 
-        Tensor <float, Dim + Chns> input_gradient (input.dimensions);
-        Tensor <float, Dim + Chns> output_gradient (output -> dimensions);
-        Tensor <float, Dim + (2 * Chns)> kernel_gradient (kernel -> dimensions);
+        Tensor <T, Dim + Chns> input_gradient (input.dimensions);
+        Tensor <T, Dim + Chns> output_gradient (output -> dimensions);
+        Tensor <T, Dim + (2 * Chns)> kernel_gradient (kernel -> dimensions);
 
-        // Tensor <float, Dim + Chns> flipped_input = input.Copy ();
-        // Tensor <float, Dim + (2 * Chns)> flipped_kernel = (*kernel).Copy ();
+        // Tensor <T, Dim + Chns> flipped_input = input.Copy ();
+        // Tensor <T, Dim + (2 * Chns)> flipped_kernel = (*kernel).Copy ();
 
         // flipped_input.Rotate ();
         // flipped_kernel.Flip ();
 
-        MeanSquaredErrorGradient <float, Dim, Chns> (*output, expected, output_gradient);
-        float loss = MeanSquaredError <float, Dim, Chns> (*output, expected);
-        // float loss = MeanSquaredError <float, Dim, Chns> (*output, expected) + Regulariser <float, Dim, Chns> (*kernel);
+        MeanSquaredErrorGradient <T, Dim, Chns> (*output, expected, output_gradient);
+        float loss = MeanSquaredError <T, Dim, Chns> (*output, expected);
+        // float loss = MeanSquaredError <T, Dim, Chns> (*output, expected) + Regulariser <T, Dim, Chns> (*kernel);
 
-        Convolve <Dim, Chns, false> (output_gradient, (*kernel), input_gradient, type, downsample);
+        Convolve <T, Dim, Chns, false> (output_gradient, (*kernel), input_gradient, type, downsample);
         // expected.Print ("expected");
         // (*output).Print ("output");
 
         // output_gradient.Print ("output gradient");
         // ? some kind of issue with orientation - seems to be updating the wrong indexes
-        Convolve <Dim, Chns, true>  (input, output_gradient, kernel_gradient, type, downsample);
+        Convolve <T, Dim, Chns, true>  (input, output_gradient, kernel_gradient, type, downsample);
         //                              input             kernel         output
 
         // (*kernel).Print ();
@@ -678,7 +678,7 @@ struct ConvolutionLayer
         kernel -> Print ();
     };
 
-    void PrintInput (const Tensor <float, Dim + Chns>& input) 
+    void PrintInput (const Tensor <T, Dim + Chns>& input) 
     {
         std::cout << "Input: " << std::endl;
         input.Print ();
@@ -1879,7 +1879,7 @@ void test_convolve ()
     Tensor <float, 4> kernel (kernel_dim, kernel_elements);
     Tensor <float, 3> output (output_dim);
 
-    Convolve <2, true, false> (input, kernel, output, same, 1);
+    Convolve <float, 2, true, false> (input, kernel, output, same, 1);
 
     input.name = "input";
     kernel.name = "kernel";
@@ -1922,7 +1922,7 @@ void test_convolve ()
     Tensor <float, 3> no_CH_kernel (no_CH_kernel_dim, no_CH_kernel_elements);
     Tensor <float, 3> no_CH_output (no_CH_output_dim);
 
-    Convolve <3, false, false> (no_CH_input, no_CH_kernel, no_CH_output, same, 1);
+    Convolve <float, 3, false, false> (no_CH_input, no_CH_kernel, no_CH_output, same, 1);
 
     no_CH_input.name = "no_CH_input";
     no_CH_kernel.name = "no_CH_kernel";
@@ -1965,7 +1965,7 @@ void test_convolve ()
     Tensor <float, 2> small_kernel (small_kernel_dim, small_kernel_elements);
     Tensor <float, 2> small_output (small_output_dim);
 
-    Convolve <2, false, false> (small_input, small_kernel, small_output, same, 1);
+    Convolve <float, 2, false, false> (small_input, small_kernel, small_output, same, 1);
 
     small_input.name = "small_input";
     small_kernel.name = "small_kernel";
@@ -2007,7 +2007,7 @@ void test_convolve ()
     Tensor <float, 5> big_kernel (big_kernel_dim, big_kernel_elements);
     Tensor <float, 5> big_output (big_output_dim);
 
-    Convolve <5, false, false> (big_input, big_kernel, big_output, same, 1);
+    Convolve <float, 5, false, false> (big_input, big_kernel, big_output, same, 1);
 
     big_input.name = "big_input";
     big_kernel.name = "big_kernel";
@@ -2049,7 +2049,7 @@ void test_convolve ()
     Tensor <float, 6> bigger_kernel (bigger_kernel_dim, bigger_kernel_elements);
     Tensor <float, 6> bigger_output (bigger_output_dim);
 
-    Convolve <6, false, false> (bigger_input, bigger_kernel, bigger_output, same, 1);
+    Convolve <float, 6, false, false> (bigger_input, bigger_kernel, bigger_output, same, 1);
 
     bigger_input.name = "bigger_input";
     bigger_kernel.name = "bigger_kernel";
@@ -2105,13 +2105,13 @@ void test_convolution_layer ()
 
         input [i] = new Tensor <float, 3> (input_dim, input_elements);
         expected [i] = new Tensor <float, 3> (input_dim);
-        Convolve <2, true, false> (*(input [i]), kernel, *(expected [i]));
+        Convolve <float, 2, true, false> (*(input [i]), kernel, *(expected [i]));
     };
 
     Random <1>* r = new Random <1> (16, SEED);
     uint downsampling = 1;
 
-    ConvolutionLayer <2, true> layer (nullptr, input_dim, output_dim, kernel_dim, r, same, downsampling);
+    ConvolutionLayer <float, 2, true> layer (nullptr, input_dim, output_dim, kernel_dim, r, same, downsampling);
 
     float costs [EXAMPLES];
 
