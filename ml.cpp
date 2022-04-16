@@ -652,6 +652,8 @@ struct ConvolutionLayer
         // (*output).Print ("output");
 
         // output_gradient.Print ("output gradient");
+
+        // TODO:
         // ? some kind of issue with orientation - seems to be updating the wrong indexes
         Convolve <T, Dim, Chns, true>  (input, output_gradient, kernel_gradient, type, downsample);
         //                              input             kernel         output
@@ -2158,35 +2160,36 @@ int main ()
     test_convolution_layer ();
 };
 
-// ! FIXME: identify issue with Convolution Backpropagation
+// ! FIXME: identify why Convolution Backpropagation is working correctly
 
 // TODO: combine layers and convolutional layers into network object
 // TODO: split tests into separate file
 
-/*
-Rename Network -> FullyConnectedLayers
+//* Rename Network -> FullyConnectedLayers
 
-New Network contains:   
-                ConvolutionalLayers
-                FullyConnectedLayers
-                RecurrentLayers
+//*         New Network contains:   
+//*                ConvolutionalLayers
+//*                FullyConnectedLayers
+//*                RecurrentLayers
+//*                ...
 
-Same backpropagation algorithms/structure etc for FullyConnectedLayers, pass final gradient from one stage to the next
-*/
+//* Same backpropagation algorithms/structure etc for FullyConnectedLayers, pass final gradient from one stage to the next
 
 // TODO: switch to using Tensor for connected layer weights, biases etc
 // TODO: check large data not being copied unnecessarily eg pass into functions by reference
+// TODO: mark variables as const unless necessarily variable
 
 // TODO: improve python graphing
-// TODO: testing, find decent default values
-// TODO: why is RMSProp producing such a weird pattern of losses
-// TODO: why is the model not overfitting
+// TODO: find decent default values for hyperparameters like learning rate etc
 // TODO: test on actual data
 
+// TODO: why is RMSProp producing such a weird pattern of losses
+// TODO: why is the model not overfitting
+
+// TODO: research potential parallelisations: CUDA? or openCL
 // TODO: read regularisation chapter
 
 // TODO: begin creating data preprocessing program
-
-// TODO: CUDA? or openCL
-
-// TODO: RNN
+// TODO: implement RNN
+// TODO: implement transformers
+// TODO: implement Folded-In-Time Network architecture
