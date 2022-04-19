@@ -647,25 +647,27 @@ struct ConvolutionLayer
         float loss = MeanSquaredError <T, Dim, Chns> (*output, expected);
         // float loss = MeanSquaredError <T, Dim, Chns> (*output, expected) + Regulariser <T, Dim, Chns> (*kernel);
 
-        Convolve <T, Dim, Chns, false> (output_gradient, (*kernel), input_gradient, type, downsample);
+        // Convolve <T, Dim, Chns, false> (output_gradient, (*kernel), input_gradient, type, downsample);
         // expected.Print ("expected");
         // (*output).Print ("output");
 
         // output_gradient.Print ("output gradient");
 
-        // TODO:
+        // TODO: 
+        // output_gradient.Rotate ();
         // ? some kind of issue with orientation - seems to be updating the wrong indexes
-        Convolve <T, Dim, Chns, true>  (input, output_gradient, kernel_gradient, type, downsample);
+        // ? do the maths on this
+        Convolve <T, Dim, Chns, true>  (output_gradient, input, kernel_gradient, type, downsample);
         //                              input             kernel         output
 
         // (*kernel).Print ();
 
         // kernel_gradient.Print ("kernel gradient");
-        kernel_gradient.Rotate ();
+        // kernel_gradient.Rotate ();
         // ? this fixes it for some reason, note swapped order of argumments in Convolve (input, output_gradient)
 
         for (uint i = 0; i < kernel -> length; i++)
-        {        
+        {     
             kernel -> elements [i] -= learning_rate * (kernel_gradient.elements [i]) + regularisation_factor * (kernel -> elements [i]);
         };
 
@@ -676,20 +678,17 @@ struct ConvolutionLayer
 
     void PrintKernel () 
     {
-        std::cout << "Kernel: " << std::endl;
-        kernel -> Print ();
+        kernel -> Print ("Kernel");
     };
 
     void PrintInput (const Tensor <T, Dim + Chns>& input) 
     {
-        std::cout << "Input: " << std::endl;
-        input.Print ();
+        input.Print ("Input");
     };
 
     void PrintOutput () 
     {
-        std::cout << "Output: " << std::endl;
-        output -> Print ();
+        output -> Print ("Output");
     };
 
     #endif
@@ -2064,12 +2063,12 @@ void test_convolve ()
 
 void test_convolution_layer () 
 {
-    size_t input_dim [3] = {3, 4, 4};
-    size_t output_dim [3] = {3, 4, 4};
-    size_t kernel_dim [4] = {3, 3, 2, 2};
+    size_t input_dim [2] = {6, 6};
+    size_t output_dim [2] = {6, 6};
+    size_t kernel_dim [2] = {2, 2};
 
     size_t size = 1;
-    for (uint i = 0; i < 4; i++)
+    for (uint i = 0; i < 2; i++)
     {
         size *= kernel_dim [i];
     };
@@ -2077,24 +2076,24 @@ void test_convolution_layer ()
     float kernel_elements [size];
     for (uint i = 0; i < size; i++)
     {
-        kernel_elements [i] = (i % 4 == 0) ? 1.0 : 0.0;
+        kernel_elements [i] = (i % 2 == 0) ? 2.0 : -1.0;
     };
 
-    Tensor <float, 4> kernel (kernel_dim, kernel_elements);
+    Tensor <float, 2> kernel (kernel_dim, kernel_elements);
 
     std::mt19937 generator (SEED);
     std::uniform_real_distribution <float> distribution (0.0, 1.0);
 
     size_t length = 1;
-    for (uint i = 0; i < 3; i++)
+    for (uint i = 0; i < 2; i++)
     {
         length *= input_dim [i];
     };
 
     #define EXAMPLES 10000
 
-    Tensor <float, 3>** input = new Tensor <float, 3>* [EXAMPLES];
-    Tensor <float, 3>** expected = new Tensor <float, 3>* [EXAMPLES];
+    Tensor <float, 2>** input = new Tensor <float, 2>* [EXAMPLES];
+    Tensor <float, 2>** expected = new Tensor <float, 2>* [EXAMPLES];
 
     for (uint i = 0; i < EXAMPLES; i++)
     {
@@ -2105,15 +2104,15 @@ void test_convolution_layer ()
             // input_elements [i] = 1.0;
         };
 
-        input [i] = new Tensor <float, 3> (input_dim, input_elements);
-        expected [i] = new Tensor <float, 3> (input_dim);
-        Convolve <float, 2, true, false> (*(input [i]), kernel, *(expected [i]));
+        input [i] = new Tensor <float, 2> (input_dim, input_elements);
+        expected [i] = new Tensor <float, 2> (input_dim);
+        Convolve <float, 2, false, false> (*(input [i]), kernel, *(expected [i]));
     };
 
     Random <1>* r = new Random <1> (16, SEED);
     uint downsampling = 1;
 
-    ConvolutionLayer <float, 2, true> layer (nullptr, input_dim, output_dim, kernel_dim, r, same, downsampling);
+    ConvolutionLayer <float, 2, false> layer (nullptr, input_dim, output_dim, kernel_dim, r, same, downsampling);
 
     float costs [EXAMPLES];
 
@@ -2144,6 +2143,88 @@ void test_convolution_layer ()
     out.close ();
 
     system ("python graph.py");
+
+
+    // size_t input_dim [3] = {3, 4, 4};
+    // size_t output_dim [3] = {3, 4, 4};
+    // size_t kernel_dim [4] = {3, 3, 2, 2};
+
+    // size_t size = 1;
+    // for (uint i = 0; i < 4; i++)
+    // {
+    //     size *= kernel_dim [i];
+    // };
+
+    // float kernel_elements [size];
+    // for (uint i = 0; i < size; i++)
+    // {
+    //     kernel_elements [i] = (i % 2 == 0) ? 2.0 : -1.0;
+    // };
+
+    // Tensor <float, 4> kernel (kernel_dim, kernel_elements);
+
+    // std::mt19937 generator (SEED);
+    // std::uniform_real_distribution <float> distribution (0.0, 1.0);
+
+    // size_t length = 1;
+    // for (uint i = 0; i < 3; i++)
+    // {
+    //     length *= input_dim [i];
+    // };
+
+    // #define EXAMPLES 10000
+
+    // Tensor <float, 3>** input = new Tensor <float, 3>* [EXAMPLES];
+    // Tensor <float, 3>** expected = new Tensor <float, 3>* [EXAMPLES];
+
+    // for (uint i = 0; i < EXAMPLES; i++)
+    // {
+    //     float input_elements [length];
+    //     for (uint j = 0; j < length; j++)
+    //     {
+    //         input_elements [j] = distribution (generator);
+    //         // input_elements [i] = 1.0;
+    //     };
+
+    //     input [i] = new Tensor <float, 3> (input_dim, input_elements);
+    //     expected [i] = new Tensor <float, 3> (input_dim);
+    //     Convolve <float, 2, true, false> (*(input [i]), kernel, *(expected [i]));
+    // };
+
+    // Random <1>* r = new Random <1> (16, SEED);
+    // uint downsampling = 1;
+
+    // ConvolutionLayer <float, 2, true> layer (nullptr, input_dim, output_dim, kernel_dim, r, same, downsampling);
+
+    // float costs [EXAMPLES];
+
+    // for (uint i = 0; i < EXAMPLES; i++)
+    // {
+    //     // layer.Propagate (input);
+
+    //     // layer.PrintInput (input);
+    //     // layer.PrintKernel ();
+    //     // layer.PrintOutput ();
+
+    //     costs [i] = layer.BackPropagate (*(input [i]), *(expected [i]));
+    //     // layer.PrintKernel ();
+    // };
+
+    // layer.PrintKernel ();
+
+    // kernel.Print ("actual kernel");
+
+    // // Process Results
+    // std::ofstream out;
+    // out.open ("losses.csv");
+
+    // for (uint i = 0; i < EXAMPLES; i++) 
+    // {
+    //     out << costs [i] << ",";
+    // };
+    // out.close ();
+
+    // system ("python graph.py");
 };
 
 #endif
@@ -2164,6 +2245,9 @@ int main ()
 
 // TODO: combine layers and convolutional layers into network object
 // TODO: split tests into separate file
+// TODO: mark private / public members
+// TODO: add move constructor to tensor
+// TODO: add benchmarking
 
 //* Rename Network -> FullyConnectedLayers
 
