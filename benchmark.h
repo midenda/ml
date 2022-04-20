@@ -122,8 +122,9 @@ public:
         std::chrono::time_point <std::chrono::steady_clock> end = std::chrono::steady_clock::now ();
 
         long long duration = std::chrono::duration_cast <std::chrono::microseconds> (end - start).count ();
+        long long start_time = std::chrono::duration_cast <std::chrono::microseconds> (start.time_since_epoch ()).count ();
 
-        InstrumentorProfile result (name, start.time_since_epoch ().count (), duration);
+        InstrumentorProfile result (name, start_time, duration);
 
         Instrumentor::WriteProfile (result);
 
