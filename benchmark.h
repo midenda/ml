@@ -40,7 +40,7 @@ private:
         active_session = true;
 
         stream.open (filepath);
-        stream << "{\"otherData\": {},\"traceEvents\":[";
+        stream << "{\n\t\"otherData\": {},\n\t\"traceEvents\": \n\t\t[";
     };
 
     void __end_session () 
@@ -49,7 +49,7 @@ private:
 
         active_session = false;
 
-        stream << "]}";
+        stream << "\n\t\t]\n}";
         stream.close ();
 
         count = 0;
@@ -60,15 +60,15 @@ private:
         if (count++ > 0)
             stream << ",";
 
-        stream << "{";
-        stream << "\"cat\":\"function\",";
-        stream << "\"dur\":" << result.duration << ",";
-        stream << "\"name\":\"" << result.name << "\",";
-        stream << "\"ph\":\"X\",";
-        stream << "\"pid\":0,";
-        stream << "\"tid\":0,";
-        stream << "\"ts\":" << result.start;
-        stream << "}";
+        stream << "\n\t\t\t{";
+        stream << "\n\t\t\t\t\"cat\":\"function\",";
+        stream << "\n\t\t\t\t\"dur\":" << result.duration << ",";
+        stream << "\n\t\t\t\t\"name\":\"" << result.name << "\",";
+        stream << "\n\t\t\t\t\"ph\":\"X\",";
+        stream << "\n\t\t\t\t\"pid\":0,";
+        stream << "\n\t\t\t\t\"tid\":0,";
+        stream << "\n\t\t\t\t\"ts\":" << result.start;
+        stream << "\n\t\t\t}";
     };
 
 public:
