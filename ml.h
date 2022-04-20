@@ -1682,10 +1682,9 @@ struct Network
 };
 
 
-// ! FIXME: identify why Convolution Backpropagation is working correctly
+// ! FIXME: identify why Convolution Backpropagation is/isn't working correctly
 
 // TODO: combine layers and convolutional layers into network object
-// TODO: split tests into separate file
 // TODO: mark private / public members
 // TODO: add move constructor to tensor
 // TODO: add benchmarking
