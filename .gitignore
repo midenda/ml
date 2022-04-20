@@ -4,5 +4,8 @@
 __pycache__/
 ml.dSYM/
 ml
+debug
+debug.dSYM/
+test
+test.dSYM/
 losses.csv
-tests/

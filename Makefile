@@ -1,16 +1,17 @@
 CC = clang++
 CPPFLAGS = -Wall -std=c++17 -g -ggdb
 DEBUGFLAGS = -Wall -fsanitize=address -fno-omit-frame-pointer -std=c++17 -g -ggdb
-OBJECTS = ml.cpp
-TESTS = tensor.cpp
+HEADERS = ml.h tensor.h
+OBJECTS = train.cpp
+TESTS = tests.cpp
 
-all: ml
+all: test
 
-ml: $(OBJECTS) tensor.h
+ml: $(OBJECTS) $(HEADERS)
 	$(CC) $(CPPFLAGS) $(OBJECTS) -o ml
 
-debug: $(OBJECTS)
-	$(CC) $(DEBUGFLAGS) $(OBJECTS) -o ml
+debug: $(OBJECTS) $(HEADERS)
+	$(CC) $(DEBUGFLAGS) $(OBJECTS) -o debug
 
-tensor: $(TESTS)
-	$(CC) $(CPPFLAGS) $(TESTS) -o tensor
+test: $(TESTS) $(HEADERS)
+	$(CC) $(CPPFLAGS) $(TESTS) -o test
