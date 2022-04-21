@@ -9,4 +9,4 @@ debug.dSYM/
 test
 test.dSYM/
 losses.csv
-profile.json
+profiles/

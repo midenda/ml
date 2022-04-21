@@ -1676,7 +1676,6 @@ struct Network
                     layer -> weights [j][k] += weight_velocities [i][j][k];
                 };
             };
-
         };
     }; 
 };

@@ -2,12 +2,14 @@
 
 #include <iostream>
 #include <chrono>
+#include <regex>
 
 #define PROFILING 1
 
 #ifdef PROFILING
-    #define ProfileScope(name) Timer timer##__line__(name)
-    #define Profile() ProfileScope(__FUNCTION__)
+    #define ProfileScope(name) Timer timer##__LINE__(name)
+    #define Profile ProfileScope(__FUNCTION__)
+    #define BenchmarkSession Instrumentor::Session (__FILE__);
 #else
     #define ProfileScope(name)
 #endif
@@ -32,8 +34,12 @@ private:
 
     Instrumentor () {};
 
-    void __session (const char* filepath)
+    void __session (const char* filename)
     {
+        std::string filepath = std::regex_replace (filename, std::regex ("\\."), "-");
+
+        filepath = "./profiles/" + filepath + ".json";
+
         if (active_session) 
             __end_session ();
 
@@ -86,9 +92,9 @@ public:
     // Deleted copy constructor
     Instrumentor (const Instrumentor&) = delete;
 
-    static void Session (const char* filepath = "./profile.json")
+    static void Session (const char* filename)
     {
-        Get ().__session (filepath);
+        Get ().__session (filename);
     };
 
     static void WriteProfile (InstrumentorProfile result)

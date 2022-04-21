@@ -549,7 +549,7 @@ void test_convolution_layer ()
 
 void print_prime (uint N)
 {
-    Profile();
+    Profile;
 
     if (N < 1)
     {
@@ -584,7 +584,7 @@ void print_prime (uint N)
 
 void print_primes (uint N)
 {
-    Profile();
+    Profile;
 
     for (uint i = 1; i < N + 1; i++)
     {
@@ -594,7 +594,7 @@ void print_primes (uint N)
 
 void test_benchmark ()
 {
-    Instrumentor::Session ();
+    BenchmarkSession;
     print_primes (100);
 };
 
@@ -603,10 +603,10 @@ void test_benchmark ()
 
 int main () 
 {
-    // test_benchmark ();
+    test_benchmark ();
     // test_tensor ();
     // test_iterate ();
     // test_convolve ();
-    test_convolution_layer ();
+    // test_convolution_layer ();
     // run_net ();
 };
