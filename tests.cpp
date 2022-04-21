@@ -1,4 +1,6 @@
 #define DEBUG_LEVEL 1
+#define PROFILING 1
+#define SEED 999
 
 #if DEBUG_LEVEL == 1
     #include <string>

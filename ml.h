@@ -1,7 +1,5 @@
 #pragma once
 
-#define SEED 999
-
 #include <cmath>
 #include <iostream>
 #include <fstream>

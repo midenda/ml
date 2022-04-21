@@ -4,14 +4,13 @@
 #include <chrono>
 #include <regex>
 
-#define PROFILING 1
-
 #ifdef PROFILING
     #define ProfileScope(name) Timer timer##__LINE__(name)
     #define Profile ProfileScope(__FUNCTION__)
     #define BenchmarkSession Instrumentor::Session (__FILE__);
 #else
     #define ProfileScope(name)
+    #define BenchmarkSession
 #endif
 
 struct InstrumentorProfile
