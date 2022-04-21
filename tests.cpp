@@ -603,10 +603,10 @@ void test_benchmark ()
 
 int main () 
 {
-    // run_net ();
+    // test_benchmark ();
     // test_tensor ();
     // test_iterate ();
     // test_convolve ();
-    // test_convolution_layer ();
-    test_benchmark ();
+    test_convolution_layer ();
+    // run_net ();
 };

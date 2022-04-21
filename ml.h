@@ -1687,7 +1687,6 @@ struct Network
 // TODO: combine layers and convolutional layers into network object
 // TODO: mark private / public members
 // TODO: add move constructor to tensor
-// TODO: add benchmarking
 
 //* Rename Network -> FullyConnectedLayers
 
@@ -1697,6 +1696,7 @@ struct Network
 //*                RecurrentLayers
 //*                ...
 
+//* Singleton class?
 //* Same backpropagation algorithms/structure etc for FullyConnectedLayers, pass final gradient from one stage to the next
 
 // TODO: switch to using Tensor for connected layer weights, biases etc
