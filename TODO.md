@@ -26,6 +26,7 @@
  -  Implement transformers
  -  Implement Folded-In-Time Network architecture
  -  Begin creating data preprocessing program
+ -  Jagged Tensors
 
 -----------------------------------------------------------------------
 
