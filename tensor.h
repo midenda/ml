@@ -1,13 +1,9 @@
 #pragma once
 #include <cmath>
 
-#define DEBUG_LEVEL 1
-
 #if DEBUG_LEVEL == 1
     #include <string>
 #endif
-
-#define PrintName(tensor) std::cout << "Printing: " << (#tensor) << "... " << std::endl;
 
 typedef unsigned int uint;
 
