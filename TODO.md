@@ -11,7 +11,7 @@
  -  Mark members of big classes / structs as private / public
  -  Add move constructor to tensor, check large data not being copied unnecessarily eg pass into functions by reference
  -  Find decent default values for hyperparameters like learning rate etc
- -  Test on actual data
+ -  Check training works on real data sets
 
 -----------------------------------------------------------------------
 
@@ -21,21 +21,29 @@
 
 -----------------------------------------------------------------------
 
+### Test
+ -  Use benchmarking to find bottlenecks
+ -  Test efficiency of `Tensor`
+ -  Check training works on real data sets
+
+-----------------------------------------------------------------------
+
 ### Implement
- -  RNN
- -  transformers
- -  Folded-In-Time Network architecture
+ -  Memory allocation tracker
  -  Data preprocessing pipeline
- -  Jagged Tensors
  -  Network Visualisation module
+ -  RNN
+ -  Transformers
+ -  Folded-In-Time Network architecture
+ -  Jagged Tensors
 
 -----------------------------------------------------------------------
 
 ### Improve
- -  Improve python graphing
  -  Mark members of big classes / structs as private / public
  -  Add move constructor to `Tensor`, check large data not being copied unnecessarily eg pass into functions by reference
  -  Mark variables as `const` unless necessarily variable
+ -  Improve python graphing
 
 -----------------------------------------------------------------------
 
