@@ -7,9 +7,9 @@
 -----------------------------------------------------------------------
 
 ### Next on the Agenda
- -  Combine layers and convolutional layers into network object
+ -  Combine `Layer` and `ConvolutionLayer` into network object
  -  Mark members of big classes / structs as private / public
- -  Add move constructor to tensor, check large data not being copied unnecessarily eg pass into functions by reference
+ -  Add move constructor to `Tensor`, check large data not being copied unnecessarily eg pass into functions by reference
  -  Find decent default values for hyperparameters like learning rate etc
  -  Check training works on real data sets
 
@@ -40,7 +40,7 @@
 -----------------------------------------------------------------------
 
 ### Improve
- -  Mark members of big classes / structs as private / public
+ -  Mark members of big classes / structs as `private` / `public`
  -  Add move constructor to `Tensor`, check large data not being copied unnecessarily eg pass into functions by reference
  -  Mark variables as `const` unless necessarily variable
  -  Improve python graphing
