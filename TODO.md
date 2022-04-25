@@ -22,11 +22,12 @@
 -----------------------------------------------------------------------
 
 ### Implement
- -  Implement RNN
- -  Implement transformers
- -  Implement Folded-In-Time Network architecture
- -  Begin creating data preprocessing program
+ -  RNN
+ -  transformers
+ -  Folded-In-Time Network architecture
+ -  Data preprocessing pipeline
  -  Jagged Tensors
+ -  Network Visualisation module
 
 -----------------------------------------------------------------------
 
