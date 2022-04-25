@@ -43,7 +43,7 @@
  -  Mark members of big classes / structs as `private` / `public`
  -  Add move constructor to `Tensor`, check large data not being copied unnecessarily eg pass into functions by reference
  -  Mark variables as `const` unless necessarily variable
- -  Improve python graphing
+ -  Improve python graphing - perform regression on loss during training to identify learning patterns
 
 -----------------------------------------------------------------------
 
