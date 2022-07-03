@@ -198,7 +198,6 @@ void PrintTensor (const Tensor <T, N>& tensor, size_t truncation_length = 8, siz
 template <typename T, size_t N>
 struct Tensor
 {
-    size_t size = sizeof (Tensor <T, N>);
     size_t dimensions [N];
     T* elements;
     size_t length;
@@ -208,6 +207,7 @@ struct Tensor
 
     #if DEBUG_LEVEL == 1
 
+    size_t size = sizeof (Tensor <T, N>);
     const char* name = "default";
 
     #endif
@@ -252,10 +252,12 @@ struct Tensor
             children [i] = new Tensor <T, N - 1> (dim, (elements + separation * i), 1);
         };
 
+        #if DEBUG_LEVEL == 1
         for (int i = 0; i < l; i++)
         {
             size += children [i] -> size;
         }; 
+        #endif
     };
 
     // Child Constructor: shouldn't be called explicitly
@@ -286,10 +288,12 @@ struct Tensor
 
         elements = e; 
 
+        #if DEBUG_LEVEL == 1
         for (int i = 0; i < l; i++)
         {
             size += children [i] -> size;
         }; 
+        #endif
     };
 
     Tensor (const size_t input_dimensions [N])
@@ -324,10 +328,12 @@ struct Tensor
             children [i] = new Tensor <T, N - 1> (dim, (elements + separation * i), 1);
         };
 
+        #if DEBUG_LEVEL == 1
         for (int i = 0; i < l; i++)
         {
             size += children [i] -> size;
-        }; 
+        };
+        #endif 
     };
 
     ~Tensor () 
@@ -525,6 +531,14 @@ struct Tensor
         {
             children [i] = new Tensor <T, N - 1> (dim, (flipped_elements + separation * i), 1);
         };
+
+        #if DEBUG_LEVEL == 1
+        size = sizeof (Tensor <T, N>);
+        for (uint i = 0; i < l; i++)
+        {
+            size += children [i] -> size;
+        };
+        #endif
     };
 
     const Tensor <T, N> Copy () const
@@ -584,10 +598,13 @@ struct Tensor
 template <typename T>
 struct Tensor <T, 1>
 {
-    size_t size = sizeof (Tensor <T, 1>);
     size_t length;
     T* elements;
     uint layer;
+
+    #if DEBUG_LEVEL == 1
+    size_t size = sizeof (Tensor <T, 1>);
+    #endif
 
     Tensor () {};
 
@@ -602,7 +619,9 @@ struct Tensor <T, 1>
             elements [i] = e [i];
         };
 
+        #if DEBUG_LEVEL == 1
         size += sizeof (T) * length;  // elements
+        #endif
     };
 
     Tensor (const size_t dimensions [1], T* e, const uint layer)
@@ -611,7 +630,10 @@ struct Tensor <T, 1>
         length = dimensions [0];
 
         elements = e;
+
+        #if DEBUG_LEVEL == 1
         size += sizeof (T) * length;  // elements
+        #endif
     };
 
     ~Tensor () 
