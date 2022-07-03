@@ -3,6 +3,7 @@
 
 #if DEBUG_LEVEL == 1
     #include <string>
+    #include <random> 
 #endif
 
 typedef unsigned int uint;
@@ -197,6 +198,7 @@ void PrintTensor (const Tensor <T, N>& tensor, size_t truncation_length = 8, siz
 template <typename T, size_t N>
 struct Tensor
 {
+    size_t size = sizeof (Tensor <T, N>);
     size_t dimensions [N];
     T* elements;
     size_t length;
@@ -235,6 +237,7 @@ struct Tensor
             length *= d;
         };
 
+
         elements = new T [length];
         for (int i = 0; i < length; i++)
         {
@@ -248,6 +251,11 @@ struct Tensor
         {
             children [i] = new Tensor <T, N - 1> (dim, (elements + separation * i), 1);
         };
+
+        for (int i = 0; i < l; i++)
+        {
+            size += children [i] -> size;
+        }; 
     };
 
     // Child Constructor: shouldn't be called explicitly
@@ -259,7 +267,7 @@ struct Tensor
             dimensions [i] = input_dimensions [i];
         };
 
-        size_t child_count = dimensions [0];
+        size_t l = dimensions [0];
 
         size_t dim [N - 1];
         length = 1;
@@ -269,14 +277,19 @@ struct Tensor
             length *= dimensions [i + 1];
         };
 
-        children = new Tensor <T, N - 1>* [child_count];
+        children = new Tensor <T, N - 1>* [l];
 
-        for (int i = 0; i < child_count; i++)
+        for (int i = 0; i < l; i++)
         {
             children [i] = new Tensor <T, N - 1> (dim, (e + length * i), layer + 1);
         };
 
         elements = e; 
+
+        for (int i = 0; i < l; i++)
+        {
+            size += children [i] -> size;
+        }; 
     };
 
     Tensor (const size_t input_dimensions [N])
@@ -310,6 +323,11 @@ struct Tensor
         {
             children [i] = new Tensor <T, N - 1> (dim, (elements + separation * i), 1);
         };
+
+        for (int i = 0; i < l; i++)
+        {
+            size += children [i] -> size;
+        }; 
     };
 
     ~Tensor () 
@@ -548,6 +566,17 @@ struct Tensor
         std::cout << std::endl;
     };
 
+    void Randomise ()
+    {
+        std::mt19937 generator (SEED);
+        std::uniform_real_distribution <float> distribution (0.0, 1.0);
+
+        for (uint i = 0; i < length; i++)
+        {
+            elements [i] = distribution (generator);
+        };
+    };
+
     #endif
 };
 
@@ -555,6 +584,7 @@ struct Tensor
 template <typename T>
 struct Tensor <T, 1>
 {
+    size_t size = sizeof (Tensor <T, 1>);
     size_t length;
     T* elements;
     uint layer;
@@ -564,13 +594,15 @@ struct Tensor <T, 1>
     Tensor (const size_t dimensions [1], T e [])
     {
         layer = 0;
-        size_t length = dimensions [0];
+        length = dimensions [0];
 
         elements = new T [length];
         for (int i = 0; i < length; i++)
         {
             elements [i] = e [i];
         };
+
+        size += sizeof (T) * length;  // elements
     };
 
     Tensor (const size_t dimensions [1], T* e, const uint layer)
@@ -579,6 +611,7 @@ struct Tensor <T, 1>
         length = dimensions [0];
 
         elements = e;
+        size += sizeof (T) * length;  // elements
     };
 
     ~Tensor () 

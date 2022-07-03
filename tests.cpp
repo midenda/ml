@@ -600,15 +600,40 @@ void test_benchmark ()
     print_primes (100);
 };
 
+void test_size ()
+{
+    size_t input_dim [4] = {3, 5, 7, 11};
+    Tensor <float, 4> T (input_dim);
+    T.Randomise ();
+
+    // std::cout << "Size: " << T.size << std::endl;
+
+    // size_t expected = 3 * 5 * 7 * sizeof (Tensor <float, 1>) 
+    //                 + 3 * 5 * sizeof (Tensor <float, 2>) 
+    //                 + 3 * sizeof (Tensor <float, 3>) 
+    //                 + sizeof (T)
+    //                 + T.length * sizeof (float);
+
+    // std::cout << "Expected size: " << expected << std::endl;
+
+    size_t overhead = T.size - T.length * sizeof (float);
+    float ratio = (float)overhead / (float)(T.size);
+
+    // std::cout << "Size - sizeof (elements): " << overhead << std::endl;
+    std::cout << "Ratio: " << ratio << std::endl;
+
+};
+
 
 // ***---------  MAIN  ---------*** //
 
 int main () 
 {
+    // test_size ();
     // test_benchmark ();
     // test_tensor ();
     // test_iterate ();
-    // test_convolve ();
-    test_convolution_layer ();
+    test_convolve ();
+    // test_convolution_layer ();
     // run_net ();
 };
