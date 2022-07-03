@@ -578,6 +578,11 @@ void InitialiseKernel (Random <1>* r, Tensor <T, Dim + (2 * Chns)>* kernel, uint
 
 // ***---------  NETWORK LAYER DEFINITIONS  ---------*** //
 
+struct RecurrentLayer
+{
+    
+};
+
 template <typename T, size_t Dim, bool Chns>
 struct ConvolutionLayer 
 {
