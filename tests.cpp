@@ -431,7 +431,7 @@ void test_convolution_layer ()
         Convolve <float, 2, false, false> (*(input [i]), kernel, *(expected [i]));
     };
 
-    Random <1>* r = new Random <1> (16, SEED);
+    NormalisedRandom <1>* r = new NormalisedRandom <1> (16, SEED);
     uint downsampling = 1;
 
     ConvolutionLayer <float, 2, false> layer (nullptr, input_dim, output_dim, kernel_dim, r, same, downsampling);
@@ -513,7 +513,7 @@ void test_convolution_layer ()
     //     Convolve <float, 2, true, false> (*(input [i]), kernel, *(expected [i]));
     // };
 
-    // Random <1>* r = new Random <1> (16, SEED);
+    // NormalisedRandom <1>* r = new NormalisedRandom <1> (16, SEED);
     // uint downsampling = 1;
 
     // ConvolutionLayer <float, 2, true> layer (nullptr, input_dim, output_dim, kernel_dim, r, same, downsampling);
@@ -624,6 +624,26 @@ void test_size ()
 
 };
 
+void test_recurrent_layer ()
+{
+    size_t dimensions [2] = {4, 4};
+
+    RecurrentLayer <float> layer (dimensions [0], dimensions [1]);
+
+    Tensor <float, 2> input (dimensions);
+
+    for (uint i = 0; i < dimensions [0]; i++)
+    {
+        for (uint j = 0; j < dimensions [1]; j++)
+        {
+            input [i][j] = (i == 0) ? 1.0 : 0.0;
+        };
+    };
+
+    layer.Propagate (input);
+    layer.probabilities -> Print ();
+};
+
 
 // ***---------  MAIN  ---------*** //
 
@@ -633,7 +653,8 @@ int main ()
     // test_benchmark ();
     // test_tensor ();
     // test_iterate ();
-    test_convolve ();
+    // test_convolve ();
     // test_convolution_layer ();
+    test_recurrent_layer ();
     // run_net ();
 };

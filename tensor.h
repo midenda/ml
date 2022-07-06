@@ -10,6 +10,24 @@ typedef unsigned int uint;
 
 typedef void (*Interim) (const uint, size_t);
 
+#if DEBUG_LEVEL == 1
+template <typename T>
+struct Random
+{
+    std::random_device rd;
+    std::mt19937 generator;
+    std::uniform_real_distribution <T> distribution;
+
+    Random ()         : generator (rd ()), distribution (0.0, 1.0) {};
+    Random (int seed) : generator (seed),  distribution (0.0, 1.0) {};
+
+    T number () 
+    {
+        return distribution (generator);
+    };
+};
+#endif
+
 void nullfn (const uint layer, size_t N) {};
 
 void alternating_sort (const uint input [], uint output [], size_t N)
@@ -549,6 +567,14 @@ struct Tensor
 
     #if DEBUG_LEVEL == 1
 
+    void SetElements (Random <T>* r)
+    {
+        for (uint i = 0; i < length; i++)
+        {
+            elements [i] = r -> number ();
+        };
+    };
+
     void Print (const char* printname = nullptr) const
     {
         size_t truncation_length = 8;
@@ -636,6 +662,34 @@ struct Tensor <T, 1>
         #endif
     };
 
+    Tensor (const size_t dimension, T e [])
+    {
+        layer = 0;
+        length = dimension;
+
+        elements = new T [length];
+        for (int i = 0; i < length; i++)
+        {
+            elements [i] = e [i];
+        };
+
+        #if DEBUG_LEVEL == 1
+        size += sizeof (T) * length;  // elements
+        #endif
+    };
+
+    Tensor (const size_t dimension)
+    {
+        layer = 0;
+        length = dimension;
+
+        elements = new T [length] {};
+
+        #if DEBUG_LEVEL == 1
+        size += sizeof (T) * length;  // elements
+        #endif
+    };
+
     ~Tensor () 
     {
         if  (layer == 0)
@@ -659,6 +713,25 @@ struct Tensor <T, 1>
     T& index (const uint idx)
     {
         return elements [idx];
+    };
+
+    void SetElements (const T input)
+    {
+        for (uint i = 0; i < length; i++)
+        {
+            elements [i] = input;
+        };
+    };
+
+    void Randomise ()
+    {
+        std::mt19937 generator (SEED);
+        std::uniform_real_distribution <float> distribution (0.0, 1.0);
+
+        for (uint i = 0; i < length; i++)
+        {
+            elements [i] = distribution (generator);
+        };
     };
 };
 

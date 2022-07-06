@@ -367,7 +367,23 @@ float Max (float x [], size_t n)
     return max;
 };
 
-float* Softmax (float x [], size_t n) 
+template <typename T, size_t N>
+float Max (const Tensor <T, N>& x)
+{
+    float max = x.elements [0];
+
+    for (int i = 1; i < x.length; i++)
+    {
+        if (x.elements [i] > max)
+        {
+            max = x [i];
+        };
+    };
+
+    return max;
+};
+
+void Softmax (float x [], float* y, size_t n) 
 {
     float total = 0.0;
     float stability = - Max (x, n);
@@ -377,15 +393,29 @@ float* Softmax (float x [], size_t n)
         total += exp (x [i] + stability);
     };
 
-    float* g = new float [n];
-
     for (int i = 0; i < n; i++)
     {
-        g [i] = exp (x [i] + stability) / total;
+        y [i] = exp (x [i] + stability) / total;
+    };
+};
+
+template <typename T, size_t N>
+void Softmax (const Tensor <T, N>& x, const Tensor <T, N>& y) 
+{
+    float total = 0.0;
+    float stability = - Max <T, N> (x);
+
+    for (int i = 0; i < x.length; i++)
+    {
+        total += exp (x.elements [i] + stability);
     };
 
-    return g;
+    for (int i = 0; i < x.length; i++)
+    {
+        y.elements [i] = exp (x.elements [i] + stability) / total;
+    };
 };
+
 
 float Softplus (float x);
 
@@ -513,20 +543,20 @@ float Regulariser (const Tensor <T, Dim + (2 * Chns)>& input)
 };
 
 template <size_t depth>
-struct Random 
+struct NormalisedRandom 
 {
     std::random_device rd;
     std::mt19937 generator;
     std::normal_distribution <float> distribution [depth];
 
-    Random (size_t dim []) : generator (rd ()) 
+    NormalisedRandom (size_t dim []) : generator (rd ()) 
     {
         for (int i = 0; i < depth; i++)
         {
             distribution [i] = std::normal_distribution <float> (0.0, ((float)1) / (float)(dim [i])); // Mean 0, STDEV 1/n
         };
     };
-    Random (size_t dim [], int seed) : generator (seed) 
+    NormalisedRandom (size_t dim [], int seed) : generator (seed) 
     {
         for (int i = 0; i < depth; i++)
         {
@@ -541,17 +571,17 @@ struct Random
 };
 
 template <>
-struct Random <1>
+struct NormalisedRandom <1>
 {
     std::random_device rd;
     std::mt19937 generator;
     std::normal_distribution <float> distribution;
 
-    Random (size_t length) : generator (rd ()) 
+    NormalisedRandom (size_t length) : generator (rd ()) 
     {
         distribution = std::normal_distribution <float> (0.0, ((float)1) / (float)(length)); // Mean 0, STDEV 1/n
     };
-    Random (size_t length, int seed) : generator (seed) 
+    NormalisedRandom (size_t length, int seed) : generator (seed) 
     {
         distribution = std::normal_distribution <float> (0.0, ((float)1) / (float)(length)); // Mean 0, STDEV 1/n
     };
@@ -563,7 +593,7 @@ struct Random <1>
 };
 
 template <typename T, size_t Dim, bool Chns>
-void InitialiseKernel (Random <1>* r, Tensor <T, Dim + (2 * Chns)>* kernel, uint index [Dim + (2 * Chns)])
+void InitialiseKernel (NormalisedRandom <1>* r, Tensor <T, Dim + (2 * Chns)>* kernel, uint index [Dim + (2 * Chns)])
 {
     if (Chns && (index [0] != index [1]))
     {
@@ -578,9 +608,91 @@ void InitialiseKernel (Random <1>* r, Tensor <T, Dim + (2 * Chns)>* kernel, uint
 
 // ***---------  NETWORK LAYER DEFINITIONS  ---------*** //
 
+template <typename T>
 struct RecurrentLayer
 {
-    
+    Tensor <T, 2>* x;
+    Tensor <T, 2>* activations;
+    Tensor <T, 2>* outputs;
+    Tensor <T, 2>* probabilities;
+
+    Tensor <T, 2>* input_hidden_weights;
+    Tensor <T, 2>* hidden_output_weights;
+    Tensor <T, 2>* hidden_hidden_weights;
+
+    Tensor <T, 1>* x_biases;
+    Tensor <T, 1>* output_biases;
+
+    size_t timesteps;
+
+    RecurrentLayer (size_t dimension, size_t timesteps) : timesteps {timesteps}
+    {
+        size_t dimensions [2] = {timesteps, dimension};
+
+        x = new Tensor <T, 2> (dimensions);
+        activations = new Tensor <T, 2> (dimensions);
+        outputs = new Tensor <T, 2> (dimensions);
+        probabilities = new Tensor <T, 2> (dimensions);
+
+        size_t weight_dimensions [2] = {dimension, dimension};
+
+        input_hidden_weights = new Tensor <T, 2> (weight_dimensions);
+        hidden_output_weights = new Tensor <T, 2> (weight_dimensions);
+        hidden_hidden_weights = new Tensor <T, 2> (weight_dimensions);
+
+        x_biases = new Tensor <T, 1> (dimension);
+        output_biases = new Tensor <T, 1> (dimension);
+
+        x -> SetElements (0.0);
+        activations -> SetElements (0.0);
+        outputs -> SetElements (0.0);
+        probabilities -> SetElements (0.0);
+
+        input_hidden_weights -> SetElements (1.0);
+        hidden_output_weights -> SetElements (1.0);
+        hidden_hidden_weights -> SetElements (1.0);
+
+        x_biases -> SetElements (0.0);
+        output_biases -> SetElements (0.0);
+    };
+
+    void Propagate (const Tensor <T, 2>& input) 
+    {
+        for (uint i = 1; i < timesteps; i++)
+        {
+            size_t M = x -> dimensions [1];
+
+            for (uint j = 0; j < M; j++)
+            {
+                T weighted_sum_activations = 0;
+                T weighted_sum_input = 0;
+                for (uint k = 0; k < M; k++)
+                {
+                    weighted_sum_activations += (*hidden_hidden_weights) [j][k] * (*activations) [i - 1][k];
+                    weighted_sum_input += (*input_hidden_weights) [j][k] * input [i][k];
+                };
+
+                (*x) [i][j] = (*x_biases) [j] + weighted_sum_activations + weighted_sum_input;
+                (*activations) [i][j] = tanh ((*x) [i][j]);
+
+                T weighted_sum_output = 0;
+
+                for (uint k = 0; k < M; k++)
+                {
+                    weighted_sum_output += (*hidden_output_weights) [j][k] * (*activations) [i][k];
+                };
+
+                (*outputs) [i][j] = (*output_biases) [j] + weighted_sum_output;
+            };
+
+            Softmax <T, 1> ((*outputs) [i], (*probabilities) [i]);
+        };
+    };
+
+    void BackPropagate (const Tensor <T, 2>& input, const Tensor <T, 2>& expected)
+    {
+        
+    };
 };
 
 template <typename T, size_t Dim, bool Chns>
@@ -603,7 +715,7 @@ struct ConvolutionLayer
         size_t input_dim [Dim + Chns], 
         size_t output_dim [Dim + Chns],
         size_t kernel_dim [Dim + (2 * Chns)], 
-        Random <1>* r, 
+        NormalisedRandom <1>* r, 
         ConvolutionType type,
         uint downsample,
         float base_learning_rate = 1.0,
@@ -620,7 +732,7 @@ struct ConvolutionLayer
 
         if (initial_kernel == nullptr)
         {
-            Iterate <Random <1>*, Tensor <T, Dim + (2 * Chns)>*, Dim + (2 * Chns)> (InitialiseKernel <T, Dim, Chns>, r, kernel, kernel_dim);
+            Iterate <NormalisedRandom <1>*, Tensor <T, Dim + (2 * Chns)>*, Dim + (2 * Chns)> (InitialiseKernel <T, Dim, Chns>, r, kernel, kernel_dim);
         }
         else 
         {
@@ -719,7 +831,7 @@ struct Layer
         float** p, float* b, 
         size_t M, size_t N, 
         activation_fn f, activation_fn f_prime, 
-        Random <depth>* r, int layer_depth
+        NormalisedRandom <depth>* r, int layer_depth
     ) 
         : fn (f), fn_prime (f_prime)
     {
@@ -809,7 +921,7 @@ struct Network
     const float decay_rate;
     const int epochs;
 
-    Random <depth>* r;
+    NormalisedRandom <depth>* r;
     const int seed;
 
     float** weight_gradients [depth];
@@ -861,7 +973,7 @@ struct Network
     // Constructor Body
     {
         output = new float [dimensions [depth]];
-        r = new Random <depth> (dimensions, 1000);
+        r = new NormalisedRandom <depth> (dimensions, 1000);
 
         for (int i = 0; i < depth; i++) 
         {
