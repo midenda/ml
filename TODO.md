@@ -8,6 +8,7 @@
 
 ### Next on the Agenda
  -  Combine `Layer` and `ConvolutionLayer` into network object
+ -  Implement `BackPropagate` for `RecurrentLayer`
  -  Mark members of big classes / structs as private / public
  -  Add move constructor to `Tensor`, check large data not being copied unnecessarily eg pass into functions by reference
  -  Find decent default values for hyperparameters like learning rate etc
@@ -32,7 +33,6 @@
  -  Memory allocation tracker
  -  Data preprocessing pipeline
  -  Network Visualisation module
- -  RNN
  -  Transformers
  -  Folded-In-Time Network architecture
  -  Jagged Tensors
