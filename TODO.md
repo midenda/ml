@@ -33,6 +33,7 @@
  -  Memory allocation tracker
  -  Data preprocessing pipeline
  -  Network Visualisation module
+ -  Long Short-Term Memory Network
  -  Transformers
  -  Folded-In-Time Network architecture
  -  Jagged Tensors
