@@ -2,13 +2,14 @@
 # ToDo List
 
 ### Fix
-  - Identify why Convolution Backpropagation is/isn't working correctly
+  -  Identify why Convolution Backpropagation is/isn't working correctly
+  -  Make elements of `const Tensor` actually behave as `const`
 
 -----------------------------------------------------------------------
 
 ### Next on the Agenda
- -  Combine `Layer` and `ConvolutionLayer` into network object
  -  Implement `BackPropagate` for `RecurrentLayer`
+ -  Combine `Layer` and `ConvolutionLayer` into network object
  -  Mark members of big classes / structs as private / public
  -  Add move constructor to `Tensor`, check large data not being copied unnecessarily eg pass into functions by reference
  -  Find decent default values for hyperparameters like learning rate etc
@@ -52,6 +53,7 @@
 
 ### Change
  -  Switch to using `Tensor` for connected layer weights, biases etc
+ -  Find way of representing layers as a graph of nodes, with forwards/backwards propagation defined as edges between nodes
 
 -----------------------------------------------------------------------
 
