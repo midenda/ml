@@ -37,6 +37,7 @@
  -  Word Embedding Algorithm
  -  Long Short-Term Memory Network
  -  Transformers
+ -  Diffusion
  -  Folded-In-Time Network architecture
  -  Jagged Tensors
 
