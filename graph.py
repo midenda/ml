@@ -28,7 +28,7 @@ figure, axis = plt.subplots (1, 1, gridspec_kw = {
                     'wspace': 0.05
                 }, figsize = (plot_size, plot_size * plot_ratio), num = 1)
 
-plt.scatter (x, y, s = 50, label = "Loss", marker = ".", color = (0, 0, 0), linewidth = 1)
+plt.scatter (x, y, s = 10, label = "Loss", marker = ".", color = (0, 0, 0), linewidth = 1)
 # plt.yticks (yticks, [str (tick) for tick in yticks])
 
 # if (max (y) / min (y)) > 500:
