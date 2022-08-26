@@ -448,6 +448,26 @@ struct Tensor
         return index (indices);
     };
 
+    Tensor <T, N - 1>& operator[] (const int idx) 
+    {
+        return *(children [idx]);
+    };
+
+    const Tensor <T, N - 1>& operator[] (const int idx) const 
+    {
+        return *(children [idx]);
+    };
+
+    T& operator[] (const int indices [N])
+    {
+        return index (indices);
+    };
+
+    const T& operator[] (const int indices [N]) const 
+    {
+        return index (indices);
+    };
+
     void SetElements (const Tensor <T, N>& input)
     {
         if (input.length == length) 
