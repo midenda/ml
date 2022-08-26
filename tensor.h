@@ -213,6 +213,25 @@ void PrintTensor (const Tensor <T, N>& tensor, size_t truncation_length = 8, siz
     Iterate <const PrintInput <T, N>&, void*, N> (PrintElement, input, nullptr, dim, print_separator);
 };
 
+template <typename T>
+void MatrixMultiply (const Tensor <T, 2>& V, const Tensor <T, 2>& W, Tensor <T, 2>& output)
+{
+    (V.dimensions [1] == W.dimensions [0]);
+    (V.dimensions [0] == output.dimensions [0]);
+    (W.dimensions [1] == output.dimensions [1]);
+
+    for (uint i = 0; i < V.dimensions [0]; i++)
+    {
+        for (uint j = 0; j < W.dimensions [1]; j++)
+        {
+            for (uint k = 0; k < V.dimensions [1]; j++)
+            {
+                output [i][j] += V [i][k] *  W [k][j];
+            };
+        };
+    };
+};
+
 template <typename T, size_t N>
 struct Tensor
 {
@@ -734,10 +753,3 @@ struct Tensor <T, 1>
         };
     };
 };
-
-// TODO:
-// template <typename T, size_t dim []>
-// struct JaggedTensor
-// {
-//     Tensor <T, N>
-// };
