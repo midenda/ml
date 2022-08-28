@@ -14,6 +14,7 @@
  -  Add move constructor to `Tensor`, check large data not being copied unnecessarily eg pass into functions by reference
  -  Find decent default values for hyperparameters like learning rate etc
  -  Check training works on real data sets
+ -  Add `Tensor` support to `Regression`
 
 -----------------------------------------------------------------------
 
