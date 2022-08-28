@@ -9,4 +9,5 @@ debug.dSYM/
 test
 test.dSYM/
 losses.csv
+regression_test.csv
 profiles/
