@@ -131,3 +131,16 @@ void Regression (T x [N], T y [N], float* coefficients)
 
     GaussianElimination <T, order + 1> (matrix, coefficients);
 };
+
+template <typename T, size_t order, size_t N>
+void FitLine (const T x_points [N], float* y, float* coefficients)
+{
+    for (uint i = 0; i < N; i++)
+    {
+        y [i] = 0;
+        for (uint j = 0; j < order + 1; j++)
+        {
+            y [i] += pow (x_points [i], j) * coefficients [j];
+        };
+    };
+};
