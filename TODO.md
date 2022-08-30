@@ -5,11 +5,12 @@
   -  Identify why Convolution Backpropagation is/isn't working correctly
   -  Make elements of `const Tensor` actually behave as `const`
   -  Change gradient descent algorithms in Network so that they don't return a pointer for costs
+  
 -----------------------------------------------------------------------
 
 ### Next on the Agenda
  -  Add depth to `RecurrentLayer`
- -  Combine `Layer` and `ConvolutionLayer` into network object
+ -  Combine `Layer`, `RecurrentLayer` and `ConvolutionLayer` into network object
  -  Mark members of big classes / structs as private / public
  -  Add `Tensor` support to `Regression`
  -  Add move constructor to `Tensor`, check large data not being copied unnecessarily eg pass into functions by reference
