@@ -9,24 +9,21 @@
 typedef unsigned int uint;
 
 typedef void (*Interim) (const uint, size_t);
-
-#if DEBUG_LEVEL == 1
-template <typename T>
+template <typename T, typename DistributionType = std::uniform_real_distribution <T>>
 struct Random
 {
     std::random_device rd;
     std::mt19937 generator;
-    std::uniform_real_distribution <T> distribution;
+    DistributionType distribution;
 
-    Random ()         : generator (rd ()), distribution (0.0, 1.0) {};
-    Random (int seed) : generator (seed),  distribution (0.0, 1.0) {};
+    Random (          T mean = 0.0, T variance = 1.0) : generator (rd ()), distribution (mean, variance) {};
+    Random (int seed, T mean = 0.0, T variance = 1.0) : generator (seed),  distribution (mean, variance) {};
 
     T number () 
     {
         return distribution (generator);
     };
 };
-#endif
 
 void nullfn (const uint layer, size_t N) {};
 
@@ -604,6 +601,17 @@ struct Tensor
     };
 
 
+    template <typename DistributionType = std::uniform_real_distribution <T>>
+    void Randomise ()
+    {
+        Random <T, DistributionType> r (SEED, 0.0, float(1.0) / float(length));
+
+        for (uint i = 0; i < length; i++)
+        {
+            elements [i] = r.number ();
+        };
+    };
+
     #if DEBUG_LEVEL == 1
 
     void SetElements (Random <T>* r)
@@ -645,16 +653,6 @@ struct Tensor
         std::cout << std::endl;
     };
 
-    void Randomise ()
-    {
-        std::mt19937 generator (SEED);
-        std::uniform_real_distribution <float> distribution (0.0, 1.0);
-
-        for (uint i = 0; i < length; i++)
-        {
-            elements [i] = distribution (generator);
-        };
-    };
 
     #endif
 };

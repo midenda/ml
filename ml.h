@@ -693,9 +693,9 @@ struct RecurrentLayer
         x_biases      = new Tensor <T, 1> (dimension);
         output_biases = new Tensor <T, 1> (dimension);
 
-        input_hidden_weights  -> SetElements (0.5); //TODO: initialise weights and biases with random values
-        hidden_output_weights -> SetElements (0.5);
-        hidden_hidden_weights -> SetElements (0.5);
+        input_hidden_weights  -> template Randomise <std::normal_distribution <T>> ();
+        hidden_output_weights -> template Randomise <std::normal_distribution <T>> ();
+        hidden_hidden_weights -> template Randomise <std::normal_distribution <T>> ();
 
         // x_biases -> SetElements (0.0);
         // output_biases -> SetElements (0.0);
@@ -1076,7 +1076,7 @@ struct Network
     const int epochs;
 
     NormalisedRandom <depth>* r;
-    const int seed;
+    const int seed; // TODO: use global seed
 
     float** weight_gradients [depth];
     float* bias_gradients [depth];
@@ -1392,7 +1392,7 @@ struct Network
         learning_rate = (1 - 0.99 * alpha) * base_learning_rate;
     };
 
-    float* GD_Basic (float* input_set [], float* expected_set [], size_t set_size, int seed = 1000)
+    float* GD_Basic (float* input_set [], float* expected_set [], size_t set_size, int seed = 1000) //TODO: use global seed
     { 
         float* costs = new float [set_size * epochs];
 
