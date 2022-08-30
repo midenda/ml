@@ -2,6 +2,9 @@
 .env
 .vscode/
 __pycache__/
+*.icloud
+
+# Project Specific
 ml.dSYM/
 ml
 debug
