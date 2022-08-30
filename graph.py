@@ -1,20 +1,34 @@
 import matplotlib.pyplot as plt
+from argparse import ArgumentParser
 from fmath import around
 
-with open ("losses.csv") as file:
-  data = file.read ()
 
-losses = data.split (",") [:-1]
+colours = [(0.1, 0.1, 0.1), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0), (0.5, 0.5, 0.0), (0.5, 0.0, 0.5), (0.0, 0.5, 0.5)]
 
-x = [i for i in range (len (losses))]
-y = [float (c) for c in losses]
+# Parse command line arguments
+parser = ArgumentParser ()
+parser.add_argument (type = str, dest = "filename")
+parser.add_argument ("--fit", action = "store_true", default = False, dest = "fit")
 
-# ymin = int (around (min (y), nearest = 10, direction = "down"))
-# ymax = int (around (max (y), nearest = 10, direction = "up"))
+args = parser.parse_args ()
 
-# spacing = int (around (abs (ymax - ymin) / 10, nearest = 10))
+# Stream in data to plot from file
+with open (args.filename) as file:
+    data = file.read ()
 
-# yticks = [i for i in range (ymin, ymax, spacing)]
+filetype = args.filename.split (".")[1]
+
+if filetype == "csv":
+    series = []
+    rows = data.split ("\n")
+
+    if len (rows) > 1:
+        for i in range (len (rows)):
+            series.append ([float (c) for c in rows [i].split (",") [:-1]])
+    else:
+        values = data.split (",")
+        series.append ([i for i in range (len (values))] [:-1]) # x values
+        series.append ([float (c) for c in values] [:-1]) # y values
 
 plot_ratio = 0.78
 plot_size = 9
@@ -28,11 +42,15 @@ figure, axis = plt.subplots (1, 1, gridspec_kw = {
                     'wspace': 0.05
                 }, figsize = (plot_size, plot_size * plot_ratio), num = 1)
 
-plt.scatter (x, y, s = 10, label = "Loss", marker = ".", color = (0, 0, 0), linewidth = 1)
+for i in range (1, len (series) - 1):
+    plt.scatter (series [0], series [i], s = 10, label = "Loss", marker = "+", color = colours [i - 1], linewidth = 0.5)
 # plt.yticks (yticks, [str (tick) for tick in yticks])
 
+if args.fit:
+    plt.plot (series [0], series [-1], linestyle = "-", color = (1, 0, 0))
+
 # if (max (y) / min (y)) > 500:
-plt.yscale ("log")
+# plt.yscale ("log")
 
 axis.set_ylabel ("$ Loss $", fontsize = 11)
 axis.set_xlabel ("$ Iterations $", fontsize = 11)
