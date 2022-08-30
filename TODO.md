@@ -8,19 +8,19 @@
 -----------------------------------------------------------------------
 
 ### Next on the Agenda
- -  Implement `BackPropagate` for `RecurrentLayer`
+ -  Add depth to `RecurrentLayer`
  -  Combine `Layer` and `ConvolutionLayer` into network object
  -  Mark members of big classes / structs as private / public
- -  Add move constructor to `Tensor`, check large data not being copied unnecessarily eg pass into functions by reference
- -  Find decent default values for hyperparameters like learning rate etc
- -  Check training works on real data sets
  -  Add `Tensor` support to `Regression`
+ -  Add move constructor to `Tensor`, check large data not being copied unnecessarily eg pass into functions by reference
 
 -----------------------------------------------------------------------
 
 ### Investigate
  -  Why is `RMSProp` producing such a weird pattern of losses
  -  Why is the model not overfitting
+ -  Check training works on real data sets
+ -  Find decent default values for hyperparameters like learning rate etc
 
 -----------------------------------------------------------------------
 
@@ -35,11 +35,11 @@
  -  Memory allocation tracker
  -  Data preprocessing pipeline
  -  Network Visualisation module
- -  Word Embedding Algorithm
  -  Long Short-Term Memory Network
  -  Transformers
  -  Diffusion
  -  Folded-In-Time Network architecture
+ -  Word Embedding Algorithm
  -  Jagged Tensors
 
 -----------------------------------------------------------------------
