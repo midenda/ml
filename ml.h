@@ -352,6 +352,16 @@ float SigmoidDerivative (float x)
     return Sigmoid (x) * (1 - Sigmoid (x));
 };
 
+float TanhDerivative (float x)
+{
+    return 1 - pow (tanh (x), 2);
+};
+
+float ArtanhDerivative (float x)
+{
+    return 1 / (1 - pow (x, 2));
+};
+
 float Max (float x [], size_t n)
 {
     float max = x [0];
@@ -400,7 +410,7 @@ void Softmax (float x [], float* y, size_t n)
 };
 
 template <typename T, size_t N>
-void Softmax (const Tensor <T, N>& x, const Tensor <T, N>& y) 
+void Softmax (const Tensor <T, N>& x, Tensor <T, N>& y) 
 {
     float total = 0.0;
     float stability = - Max <T, N> (x);
@@ -416,6 +426,19 @@ void Softmax (const Tensor <T, N>& x, const Tensor <T, N>& y)
     };
 };
 
+template <typename T, size_t N>
+void SoftmaxJacobian (const Tensor <T, N>& input, Tensor <T, 2 * N>& output)
+{
+    const size_t M = input.length;
+
+    for (uint i = 0; i < M; i++)
+    {
+        for (uint j = 0; j < M; j++)
+        {
+            output.elements [i * M + j] = input.elements [i] * ((i == j) - input.elements [j]);
+        };
+    };
+};
 
 float Softplus (float x);
 
@@ -460,8 +483,8 @@ void MeanSquaredErrorGradient (float output [], float expected [], float* gradie
     };
 };
 
-template <typename T, size_t Dim, bool Chns>
-float MeanSquaredError (const Tensor <T, Dim + Chns>& output, const Tensor <T, Dim + Chns>& expected)
+template <typename T, size_t N>
+float MeanSquaredError (const Tensor <T, N>& output, const Tensor <T, N>& expected)
 {
     float total = 0.0;
 
@@ -474,8 +497,8 @@ float MeanSquaredError (const Tensor <T, Dim + Chns>& output, const Tensor <T, D
     return total / output.length;
 };
 
-template <typename T, size_t Dim, bool Chns>
-void MeanSquaredErrorGradient (const Tensor <T, Dim + Chns>& output, const Tensor <T, Dim + Chns>& expected, Tensor <T, Dim + Chns>& gradient) 
+template <typename T, size_t N>
+void MeanSquaredErrorGradient (const Tensor <T, N>& output, const Tensor <T, N>& expected, Tensor <T, N>& gradient) 
 {
     size_t length = output.length;
     for (int i = 0; i < length; i++)
@@ -529,10 +552,33 @@ void CrossEntropyGradient (const Tensor <T, Dim + Chns>& output, const Tensor <T
     };
 };
 
-template <typename T, size_t Dim, bool Chns>
-float Regulariser (const Tensor <T, Dim + (2 * Chns)>& input)
+template <typename T, size_t N>
+T NegativeLogLikelyhood (const Tensor <T, N>& output, const Tensor <T, N>& expected)
 {
     float total = 0.0;
+    float epsilon = 0.01;
+
+    for (uint i = 0; i < output.length; i++)
+    {
+        total += expected.elements [i] * log (output.elements [i] + epsilon);
+    };
+
+    return -total;
+};
+
+template <typename T, size_t N>
+void NegativeLogLikelyhoodGradient (const Tensor <T, N>& output, const Tensor <T, N>& expected, Tensor <T, N>& gradient) 
+{
+    for (uint i = 0; i < output.length; i++)
+    {
+        gradient.elements [i] = expected.elements [i] * (output.elements [i] - 1);
+    };
+};
+
+template <typename T, size_t N>
+float Regulariser (const Tensor <T, N>& input)
+{
+    float total = 0.01;
 
     for (uint i = 0; i < input.length; i++)
     {
@@ -624,55 +670,56 @@ struct RecurrentLayer
     Tensor <T, 1>* output_biases;
 
     size_t timesteps;
+    size_t dimension;
 
-    RecurrentLayer (size_t dimension, size_t timesteps) : timesteps {timesteps}
+    float learning_rate;
+
+    RecurrentLayer (size_t dimension, size_t timesteps, float learning_rate = 0.01) 
+        : timesteps {timesteps}, dimension {dimension}, learning_rate {learning_rate}
     {
         size_t dimensions [2] = {timesteps, dimension};
 
-        x = new Tensor <T, 2> (dimensions);
-        activations = new Tensor <T, 2> (dimensions);
-        outputs = new Tensor <T, 2> (dimensions);
+        x             = new Tensor <T, 2> (dimensions);
+        activations   = new Tensor <T, 2> (dimensions);
+        outputs       = new Tensor <T, 2> (dimensions);
         probabilities = new Tensor <T, 2> (dimensions);
 
         size_t weight_dimensions [2] = {dimension, dimension};
 
-        input_hidden_weights = new Tensor <T, 2> (weight_dimensions);
+        input_hidden_weights  = new Tensor <T, 2> (weight_dimensions);
         hidden_output_weights = new Tensor <T, 2> (weight_dimensions);
         hidden_hidden_weights = new Tensor <T, 2> (weight_dimensions);
 
-        x_biases = new Tensor <T, 1> (dimension);
+        x_biases      = new Tensor <T, 1> (dimension);
         output_biases = new Tensor <T, 1> (dimension);
 
-        x -> SetElements (0.0);
-        activations -> SetElements (0.0);
-        outputs -> SetElements (0.0);
-        probabilities -> SetElements (0.0);
+        input_hidden_weights  -> SetElements (0.5); //TODO: initialise weights and biases with random values
+        hidden_output_weights -> SetElements (0.5);
+        hidden_hidden_weights -> SetElements (0.5);
 
-        input_hidden_weights -> SetElements (1.0);
-        hidden_output_weights -> SetElements (1.0);
-        hidden_hidden_weights -> SetElements (1.0);
-
-        x_biases -> SetElements (0.0);
-        output_biases -> SetElements (0.0);
+        // x_biases -> SetElements (0.0);
+        // output_biases -> SetElements (0.0);
     };
 
     void Propagate (const Tensor <T, 2>& input) 
     {
-        for (uint i = 1; i < timesteps; i++)
-        {
-            size_t M = x -> dimensions [1];
+        const size_t M = x -> dimensions [1];
 
+        for (uint i = 0; i < timesteps; i++)
+        {
             for (uint j = 0; j < M; j++)
             {
-                T weighted_sum_activations = 0;
-                T weighted_sum_input = 0;
+                (*x) [i][j] = (*x_biases) [j];
+
                 for (uint k = 0; k < M; k++)
                 {
-                    weighted_sum_activations += (*hidden_hidden_weights) [j][k] * (*activations) [i - 1][k];
-                    weighted_sum_input += (*input_hidden_weights) [j][k] * input [i][k];
+                    if (i > 0)
+                    {
+                        (*x) [i][j] += (*hidden_hidden_weights) [j][k] * (*activations) [i - 1][k];
+                    };
+                    (*x) [i][j] += (*input_hidden_weights) [j][k] * input [i][k];
                 };
 
-                (*x) [i][j] = (*x_biases) [j] + weighted_sum_activations + weighted_sum_input;
                 (*activations) [i][j] = tanh ((*x) [i][j]);
 
                 T weighted_sum_output = 0;
@@ -689,9 +736,116 @@ struct RecurrentLayer
         };
     };
 
-    void BackPropagate (const Tensor <T, 2>& input, const Tensor <T, 2>& expected)
+    float BackPropagate (const Tensor <T, 2>& input, const Tensor <T, 2>& expected)
     {
-        
+        Propagate (input);
+
+        const float loss = NegativeLogLikelyhood <T, 2> ((*probabilities), expected);
+
+        size_t weight_dimensions [2] = {dimension, dimension};
+
+        // Declare gradients of intermediary variables
+        Tensor <T, 2> outputs_gradient     (outputs -> dimensions);
+        Tensor <T, 2> activations_gradient (activations -> dimensions);
+        Tensor <T, 2> x_gradient           (x -> dimensions);
+        Tensor <T, 2> input_gradient       (input.dimensions);
+
+        // Declare gradients of weight matrices //* Note: these do not vary with time
+        Tensor <T, 2> input_hidden_gradient  (weight_dimensions);
+        Tensor <T, 2> hidden_output_gradient (weight_dimensions);
+        Tensor <T, 2> hidden_hidden_gradient (weight_dimensions);
+
+        // Declare gradients of bias matrices //* Note: these do not vary with time
+        Tensor <T, 1> x_biases_gradient (dimension);
+        Tensor <T, 1> output_biases_gradient (dimension);
+
+        NegativeLogLikelyhoodGradient <T, 2> ((*probabilities), expected, outputs_gradient);
+
+        // Backpropagation Through Time
+        for (int i = timesteps - 1; i > -1; i--)
+        {
+            for (uint j = 0; j < dimension; j++)
+            {
+                output_biases_gradient [j] += outputs_gradient [i][j];
+
+                for (uint k = 0; k < dimension; k++)
+                {
+                    hidden_output_gradient [j][k] += outputs_gradient [i][j] * (*activations) [i][k];
+                };
+            };
+
+            for (uint j = 0; j < dimension; j++)
+            {
+                for (uint k = 0; k < dimension; k++)
+                {
+                    activations_gradient [i][j] += (*hidden_output_weights) [k][j] * outputs_gradient [i][k]; //? Is transpose because of multiplication order?
+                };
+            };
+
+            if (i < timesteps - 1)
+            {
+                for (uint j = 0; j < dimension; j++)
+                {
+                    for (uint k = 0; k < dimension; k++)
+                    {
+                        activations_gradient [i][j] += (*hidden_hidden_weights) [k][j] * TanhDerivative ((*activations) [i + 1][k]) * activations_gradient [i + 1][k];
+                    };
+                };
+            };
+
+            for (uint j = 0; j < dimension; j++)
+            {
+                x_gradient [i][j] = TanhDerivative (activations_gradient [i][j]);
+                x_biases_gradient [j] += x_gradient [i][j];
+            };
+
+            for (uint j = 0; j < dimension; j++)
+            {
+                for (uint k = 0; k < dimension; k++)
+                {
+                    input_hidden_gradient [j][k] += x_gradient [i][j] * input [i][k];
+                };
+            };
+
+            for (uint j = 0; j < dimension; j++)
+            {
+                for (uint k = 0; k < dimension; k++)
+                {
+                    input_gradient [i][j] += (*input_hidden_weights) [k][j] * x_gradient [i][k]; //? Is transpose because of multiplication order?
+                };
+            };
+
+            for (uint j = 0; j < dimension; j++)
+            {
+                for (uint k = 0; k < dimension; k++)
+                {
+                    hidden_hidden_gradient [j][k] += TanhDerivative ((*activations) [i][j]) * activations_gradient [i][j] * input [i][k];
+                };
+            };
+        };
+
+        const float regulariser_input_hidden_weights  = Regulariser <T, 2> ((*input_hidden_weights));
+        const float regulariser_hidden_output_weights = Regulariser <T, 2> ((*hidden_output_weights));
+        const float regulariser_hidden_hidden_weights = Regulariser <T, 2> ((*hidden_hidden_weights));
+
+        const float regulariser_x_biases      = Regulariser <T, 1> ((*x_biases));
+        const float regulariser_output_biases = Regulariser <T, 1> ((*output_biases));
+
+        // Update weights
+        for (uint j = 0; j < dimension; j++)
+        {
+            for (uint k = 0; k < dimension; k++)
+            {
+                (*input_hidden_weights)  [j][k] -= learning_rate * input_hidden_gradient  [j][k] / regulariser_input_hidden_weights;
+                (*hidden_output_weights) [j][k] -= learning_rate * hidden_output_gradient [j][k] / regulariser_hidden_output_weights;
+                (*hidden_hidden_weights) [j][k] -= learning_rate * hidden_hidden_gradient [j][k] / regulariser_hidden_hidden_weights;
+            };
+
+            (*x_biases)      [j] -= learning_rate * x_biases_gradient      [j] / regulariser_x_biases;
+            (*output_biases) [j] -= learning_rate * output_biases_gradient [j] / regulariser_output_biases;
+        };
+
+        return loss;
     };
 };
 
@@ -759,9 +913,9 @@ struct ConvolutionLayer
         // flipped_input.Rotate ();
         // flipped_kernel.Flip ();
 
-        MeanSquaredErrorGradient <T, Dim, Chns> (*output, expected, output_gradient);
-        float loss = MeanSquaredError <T, Dim, Chns> (*output, expected);
-        // float loss = MeanSquaredError <T, Dim, Chns> (*output, expected) + Regulariser <T, Dim, Chns> (*kernel);
+        MeanSquaredErrorGradient <T, Dim + Chns> (*output, expected, output_gradient);
+        const float loss = MeanSquaredError <T, Dim + Chns> (*output, expected);
+        // float loss = MeanSquaredError <T, Dim + Chns> (*output, expected) + Regulariser <T, Dim + (2 * Chns)> (*kernel);
 
         // Convolve <T, Dim, Chns, false> (output_gradient, (*kernel), input_gradient, type, downsample);
         // expected.Print ("expected");
