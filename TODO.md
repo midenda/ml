@@ -5,6 +5,7 @@
   -  Identify why Convolution Backpropagation is/isn't working correctly
   -  Make elements of `const Tensor` actually behave as `const`
   -  Change gradient descent algorithms in Network so that they don't return a pointer for costs
+  -  Standardise behaviour for `Tensor.dimensions`
   
 -----------------------------------------------------------------------
 
