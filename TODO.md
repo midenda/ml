@@ -19,6 +19,7 @@
 -----------------------------------------------------------------------
 
 ### Investigate
+ -  Is it possible to rewrite `Iterate` using a variadic template instead of run-time recursion
  -  Why is `RMSProp` producing such a weird pattern of losses
  -  Why is the model not overfitting
  -  Check training works on real data sets
