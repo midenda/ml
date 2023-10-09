@@ -9,7 +9,7 @@
   
 -----------------------------------------------------------------------
 
-### Next on the Agenda
+### Next on the Agenda
  -  Add depth to `RecurrentLayer`
  -  Combine `Layer`, `RecurrentLayer` and `ConvolutionLayer` into network object
  -  Mark members of big classes / structs as private / public
@@ -18,7 +18,7 @@
 
 -----------------------------------------------------------------------
 
-### Investigate
+### Investigate
  -  Is it possible to rewrite `Iterate` using a variadic template instead of run-time recursion
  -  Why is `RMSProp` producing such a weird pattern of losses
  -  Why is the model not overfitting
@@ -27,14 +27,14 @@
 
 -----------------------------------------------------------------------
 
-### Test
+### Test
  -  Use benchmarking to find bottlenecks
  -  Test efficiency of `Tensor`
  -  Check training works on real data sets
 
 -----------------------------------------------------------------------
 
-### Implement
+### Implement
  -  Memory allocation tracker
  -  Data preprocessing pipeline
  -  Network Visualisation module
@@ -69,7 +69,7 @@
 
 -----------------------------------------------------------------------
 
-### Refactor
+### Refactor
  -  Combine layers and convolutional layers into network object (Singleton class?) with same backpropagation algorithms/structure etc for `FullyConnectedLayers`, pass final gradient from one stage to the next
      - Rename `Network` -> `FullyConnectedLayers`
      - New Network contains:   
