@@ -199,6 +199,7 @@ void PrintElement (const PrintInput <T, N>& input, void* output, uint* idx)
     };
 };
 
+//TODO: Vary print formatting based on window size
 template <typename T, size_t N>
 void PrintTensor (const Tensor <T, N>& tensor, size_t truncation_length = 8, size_t spacing = 2)
 {
@@ -233,10 +234,10 @@ template <typename T, size_t N>
 struct Tensor
 {
     size_t dimensions [N];
-    T* elements;
     size_t length;
     uint layer;
-
+    T* elements;
+    
     Tensor <T, N - 1>** children;
 
     #if DEBUG_LEVEL == 1
@@ -250,6 +251,11 @@ struct Tensor
 
     // Parent Constructor
     Tensor (const size_t input_dimensions [N], const T e [])
+    {
+        Init (input_dimensions, e);
+    };
+
+    void Init (const size_t input_dimensions [N], const T e [])
     {
         layer = 0;
 
@@ -332,6 +338,11 @@ struct Tensor
 
     Tensor (const size_t input_dimensions [N])
     {
+        Init (input_dimensions);
+    };
+
+    void Init (const size_t input_dimensions [N])
+    {
         layer = 0;
 
         for (int i = 0; i < N; i++)
@@ -387,7 +398,41 @@ struct Tensor
         };
     };
 
+    // Copy Constructor
     Tensor (const Tensor& t) = delete;
+
+    // Move Constructor
+    Tensor (Tensor&& t) noexcept
+    {
+        std::cout << "Moved Tensor" << std::endl;
+        
+        elements = t.elements;
+        t.elements = nullptr;
+        
+        children = t.children;
+        t.children = nullptr;
+        
+        for (uint i = 0; i < N; i++)
+        {
+            dimensions [i] = t.dimensions [i];
+            t.dimensions [i] = 0;
+        };
+
+        layer = t.layer;
+
+        length = t.length;
+        t.length = 0;
+
+        #if DEBUG_LEVEL == 1
+
+        size = t.size;
+        t.size = 0;
+
+        name = t.name;
+        t.name = nullptr;
+
+        #endif
+    };
 
     T& index (const uint indices [N])
     {
@@ -506,6 +551,14 @@ struct Tensor
         };
     };
 
+    void SetElements (T (*Generator) (uint))
+    {
+        for (uint i = 0; i < length; i++)
+        {
+            elements [i] = Generator (i);
+        };
+    };
+
     void Rotate ()
     {
         T rotated_elements [length];
@@ -600,6 +653,16 @@ struct Tensor
         return Tensor (dimensions, elements);
     };
 
+    template <typename DistributionType = std::uniform_real_distribution <T>>
+    void Randomise (T mean, T variance)
+    {
+        Random <T, DistributionType> r (SEED, mean, variance);
+
+        for (uint i = 0; i < length; i++)
+        {
+            elements [i] = r.number ();
+        };
+    };
 
     template <typename DistributionType = std::uniform_real_distribution <T>>
     void Randomise ()
@@ -622,9 +685,8 @@ struct Tensor
         };
     };
 
-    void Print (const char* printname = nullptr) const
+    void Print (const char* printname = nullptr, size_t truncation_length = 8) const
     {
-        size_t truncation_length = 8;
         size_t spacing = 2;
 
         if (printname != nullptr)
@@ -661,20 +723,36 @@ struct Tensor
 template <typename T>
 struct Tensor <T, 1>
 {
+    size_t dimensions [1];
     size_t length;
-    T* elements;
     uint layer;
+    T* elements;
 
     #if DEBUG_LEVEL == 1
+
     size_t size = sizeof (Tensor <T, 1>);
+    const char* name = "default";
+
     #endif
 
     Tensor () {};
 
-    Tensor (const size_t dimensions [1], T e [])
+    // Parent Constructor
+    Tensor (const size_t dimension, T e [])
+    {
+        Init (dimension, e);
+    };
+
+    Tensor (const size_t input_dimensions [1], T e [])
+    {
+        Init (input_dimensions [0], e);
+    };
+
+    void Init (const size_t dimension, T e [])
     {
         layer = 0;
-        length = dimensions [0];
+        length = dimension;
+        dimensions [0] = length;
 
         elements = new T [length];
         for (int i = 0; i < length; i++)
@@ -687,10 +765,12 @@ struct Tensor <T, 1>
         #endif
     };
 
-    Tensor (const size_t dimensions [1], T* e, const uint layer)
+    // Child Constructor, shouldn't be called explicitly
+    Tensor (const size_t input_dimensions [1], T* e, const uint layer)
         : layer {layer}
     {
-        length = dimensions [0];
+        length = input_dimensions [0];
+        dimensions [0] = length;
 
         elements = e;
 
@@ -699,26 +779,21 @@ struct Tensor <T, 1>
         #endif
     };
 
-    Tensor (const size_t dimension, T e [])
-    {
-        layer = 0;
-        length = dimension;
-
-        elements = new T [length];
-        for (int i = 0; i < length; i++)
-        {
-            elements [i] = e [i];
-        };
-
-        #if DEBUG_LEVEL == 1
-        size += sizeof (T) * length;  // elements
-        #endif
-    };
-
     Tensor (const size_t dimension)
     {
+        Init (dimension);
+    };
+
+    Tensor (const size_t dimensions [1])
+    {
+        Init (dimensions [0]);
+    };
+
+    void Init (const size_t dimension)
+    {
         layer = 0;
         length = dimension;
+        dimensions [0] = length;
 
         elements = new T [length] {};
 
@@ -735,7 +810,31 @@ struct Tensor <T, 1>
         };
     };
 
+    // Copy constructor
     Tensor (const Tensor& t) = delete;
+
+    // Move Constructor
+    Tensor (Tensor&& t) noexcept
+    {
+        elements = t.elements;
+        t.elements = nullptr;
+
+        layer = t.layer;
+
+        length = t.length;
+        dimensions [0] = length;
+        t.length = 0;
+
+        #if DEBUG_LEVEL == 1
+
+        size = t.size;
+        t.size = 0;
+
+        name = t.name;
+        t.name = nullptr;
+
+        #endif
+    };
 
     const T& operator[] (const uint idx) const 
     {
@@ -747,9 +846,34 @@ struct Tensor <T, 1>
         return elements [idx];
     };
 
+    const T& index (const uint idx) const
+    {
+        return elements [idx];
+    };
+
     T& index (const uint idx)
     {
         return elements [idx];
+    };
+
+    const T& index (const uint indices [1]) const
+    {
+        return elements [indices [0]];
+    };
+
+    T& index (const uint indices [1])
+    {
+        return elements [indices [0]];
+    };
+
+    const T& operator[] (const uint indices [1]) const
+    {
+        return index (indices);
+    };
+
+    T& operator[] (const uint indices [1])
+    {
+        return index (indices);
     };
 
     void SetElements (const T input)
@@ -760,14 +884,131 @@ struct Tensor <T, 1>
         };
     };
 
-    void Randomise ()
+    void SetElements (T (*Generator) (uint))
     {
-        std::mt19937 generator (SEED);
-        std::uniform_real_distribution <float> distribution (0.0, 1.0);
+        for (uint i = 0; i < length; i++)
+        {
+            elements [i] = Generator (i);
+        };
+    };
+
+    void SetElements (const T input [], const size_t input_length)
+    {
+        if (input_length == length) 
+        {
+            for (uint i = 0; i < length; i++)
+            {
+                elements [i] = input [i];
+            };
+        };
+    };
+
+    void SetElements (const Tensor <T, 1>& input)
+    {
+        if (input.length == length) 
+        {
+            for (uint i = 0; i < length; i++)
+            {
+                elements [i] = input.elements [i];
+            };
+        };
+    };
+
+    void SetElements (const Tensor <T, 1>* input)
+    {
+        if (input -> length == length) 
+        {
+            for (uint i = 0; i < length; i++)
+            {
+                elements [i] = input -> elements [i];
+            };
+        };
+    };
+
+    void Reshape (const size_t input_dimensions [1], T e [])
+    {
+        length = input_dimensions [0];
+        dimensions [0] = length;
+
+        delete [] elements;
+        elements = new T [length];
 
         for (uint i = 0; i < length; i++)
         {
-            elements [i] = distribution (generator);
+            elements [i] = e [i];
         };
     };
+
+    void Reshape (const size_t dimension, T e [])
+    {
+        length = dimension;
+        dimensions [0] = length;
+
+        delete [] elements;
+        elements = new T [length];
+
+        for (uint i = 0; i < length; i++)
+        {
+            elements [i] = e [i];
+        };
+    };
+
+    void Reshape (const size_t input_dimensions [1])
+    {
+        length = input_dimensions [0];
+        dimensions [0] = length;
+
+        delete [] elements;
+        elements = new T [length]{};
+    };
+
+    void Reshape (const size_t dimension)
+    {
+        length = dimension;
+        dimensions [0] = length;
+
+        delete [] elements;
+        elements = new T [length]{};
+    };
+
+
+    template <typename DistributionType = std::uniform_real_distribution <T>>
+    void Randomise (T mean, T variance)
+    {
+        Random <T, DistributionType> r (SEED, mean, variance);
+
+        for (uint i = 0; i < length; i++)
+        {
+            elements [i] = r.number ();
+        };
+    };
+
+    template <typename DistributionType = std::uniform_real_distribution <T>>
+    void Randomise ()
+    {
+        Random <T, DistributionType> r (SEED, 0.0, float(1.0) / float(length));
+
+        for (uint i = 0; i < length; i++)
+        {
+            elements [i] = r.number ();
+        };
+    };
+
+    #if DEBUG_LEVEL == 1
+
+    void Print (const char* printname = nullptr, size_t truncation_length = 8) const
+    {
+        size_t spacing = 2;
+
+        if (printname != nullptr)
+            std::cout << "Printing:     " << printname << "... " << std::endl;
+        else if (name != nullptr)
+            std::cout << "Printing:     " << name << "... " << std::endl;
+
+        PrintTensor <T, 1> (*this, truncation_length, spacing);
+
+        std::cout << "\n                                             ---***---                                             " << std::endl;
+    };
+
+    #endif
 };
