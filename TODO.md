@@ -35,6 +35,7 @@
 -----------------------------------------------------------------------
 
 ### Implement
+ -  Support Vector Machine
  -  Memory allocation tracker
  -  Data preprocessing pipeline
  -  Network Visualisation module
