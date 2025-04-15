@@ -1,3 +1,4 @@
+#pragma once
 
 template <typename T>
 void SwapRows (T** matrix, uint m, uint n)
