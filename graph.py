@@ -24,11 +24,20 @@ if filetype == "csv":
 
     if len (rows) > 1:
         for i in range (len (rows)):
-            series.append ([float (c) for c in rows [i].split (",") [:-1]])
+            series.append ([float (c) for c in rows [i].split (",") [:-1] if c])
     else:
         values = data.split (",")
-        series.append ([i for i in range (len (values))] [:-1]) # x values
-        series.append ([float (c) for c in values] [:-1]) # y values
+        xvalues = []
+        yvalues = []
+        for i, c in enumerate (values):
+            try:
+                yvalues.append (float (c)) 
+                xvalues.append (i)
+            except ValueError:
+                continue
+
+        series.append (xvalues [:-1]) # x values
+        series.append (yvalues [:-1]) # y values
 
 plot_ratio = 0.78
 plot_size = 9
@@ -42,7 +51,7 @@ figure, axis = plt.subplots (1, 1, gridspec_kw = {
                     'wspace': 0.05
                 }, figsize = (plot_size, plot_size * plot_ratio), num = 1)
 
-for i in range (1, len (series) - 1):
+for i in range (1, len (series)):
     plt.scatter (series [0], series [i], s = 10, label = "Loss", marker = "+", color = colours [i - 1], linewidth = 0.5)
 # plt.yticks (yticks, [str (tick) for tick in yticks])
 
