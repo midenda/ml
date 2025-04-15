@@ -41,6 +41,7 @@ typedef float* (*output_fn) (float[], size_t);
 typedef float (*loss_fn) (float[], float[], size_t);
 typedef void (*loss_gradient) (float[], float[], float*, size_t);
 
+//TODO: Refactor
 template <typename T, size_t Dim, bool Chns>
 struct LossFunctionInput
 {
@@ -413,7 +414,7 @@ template <typename T, size_t N>
 void Softmax (const Tensor <T, N>& x, Tensor <T, N>& y) 
 {
     float total = 0.0;
-    float stability = - Max <T, N> (x);
+    float stability = - Max <T, N> (x); //TODO: add a comment here for clarity 
 
     for (int i = 0; i < x.length; i++)
     {
@@ -494,14 +495,14 @@ float MeanSquaredError (const Tensor <T, N>& output, const Tensor <T, N>& expect
         total += pow (difference, 2);
     };
 
-    return total / output.length;
+    return total / (float)output.length;
 };
 
 template <typename T, size_t N>
 void MeanSquaredErrorGradient (const Tensor <T, N>& output, const Tensor <T, N>& expected, Tensor <T, N>& gradient) 
 {
-    size_t length = output.length;
-    for (int i = 0; i < length; i++)
+    float length = (float)output.length;
+    for (int i = 0; i < output.length; i++)
     {
         gradient.elements [i] = - 2 * (expected.elements [i] - output.elements [i]) / length;
     };
@@ -653,6 +654,27 @@ void InitialiseKernel (NormalisedRandom <1>* r, Tensor <T, Dim + (2 * Chns)>* ke
 };
 
 // ***---------  NETWORK LAYER DEFINITIONS  ---------*** //
+
+//TODO: more advanced scheduler
+struct LearningRate
+{
+    const float time_constant;
+    const float base_rate;
+    float rate;
+
+    LearningRate (float base_rate, float time_constant)
+        : time_constant (time_constant), base_rate (base_rate), rate (base_rate)
+    {};
+
+    void Update (uint i)
+    {
+        float alpha = (float)i / time_constant;
+
+        alpha = std::min (alpha, (float)1.0);
+
+        rate = (1.0 - 0.99 * alpha) * base_rate;
+    };
+};
 
 template <typename T>
 struct RecurrentLayer
@@ -938,6 +960,7 @@ struct ConvolutionLayer
 
         for (uint i = 0; i < kernel -> length; i++)
         {     
+            // ? should this regularisation be a divide instead of a multiply?
             kernel -> elements [i] -= learning_rate * (kernel_gradient.elements [i]) + regularisation_factor * (kernel -> elements [i]);
         };
 
@@ -1653,7 +1676,7 @@ struct Network
             // Calculate gradients from regulariser
             SetRegulariserGradients (layer, rgb, rgw);
 
-            // Fetch activations of preivous layer
+            // Fetch activations of previous layer
             float* a;
             if (i > 0) 
             {
