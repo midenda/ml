@@ -78,7 +78,7 @@ void undo_alternating_sort (const size_t input [], size_t output [], size_t N)
 template <typename T, size_t N>
 struct Tensor;
 
-
+//TODO: rewrite using loop instead of recursion?
 template <typename FunctionType, typename InputType, typename OutputType, size_t N>
 void __iteration 
 (
@@ -187,12 +187,11 @@ void PrintElement (const PrintInput <T, N>& input, void* output, uint* idx)
 
     uint index [N];
     undo_alternating_sort (idx, index, N);
-
+    
     // Crops each element (to 8 characters long) so display is uniform
-    std::string character = std::to_string (tensor [index]).substr (0, truncation_length);
-
+    std::string character = std::to_string (tensor.index (index)).substr (0, truncation_length);
     std::cout << character;
-
+    
     for (uint i = 0; i < truncation_length - character.length () + spacing; i++)
     {
         std::cout << " ";
@@ -392,6 +391,9 @@ struct Tensor
             delete [] children;
         };
 
+        // Child tensors do not own the elements resource, only reference it
+        // elements pointers are deleted as they go out of scope, and then
+        // the memory itself is deleted [] by the parent tensor
         if  (layer == 0)
         {
             delete [] elements;
@@ -793,8 +795,8 @@ struct Tensor <T, 1>
     {
         layer = 0;
         length = dimension;
+        
         dimensions [0] = length;
-
         elements = new T [length] {};
 
         #if DEBUG_LEVEL == 1
@@ -845,7 +847,7 @@ struct Tensor <T, 1>
     {
         return elements [idx];
     };
-
+    
     const T& index (const uint idx) const
     {
         return elements [idx];
@@ -864,16 +866,6 @@ struct Tensor <T, 1>
     T& index (const uint indices [1])
     {
         return elements [indices [0]];
-    };
-
-    const T& operator[] (const uint indices [1]) const
-    {
-        return index (indices);
-    };
-
-    T& operator[] (const uint indices [1])
-    {
-        return index (indices);
     };
 
     void SetElements (const T input)
@@ -925,6 +917,7 @@ struct Tensor <T, 1>
         };
     };
 
+    //TODO: this seems like a feature that encourages bad variable management
     void Reshape (const size_t input_dimensions [1], T e [])
     {
         length = input_dimensions [0];
