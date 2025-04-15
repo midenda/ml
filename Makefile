@@ -3,6 +3,7 @@ CPPFLAGS = -Wall -std=c++17 -g -ggdb
 DEBUGFLAGS = -Wall -fsanitize=address -fno-omit-frame-pointer -std=c++17 -g -ggdb
 HEADERS = ml.h tensor.h benchmark.h regression.h
 OBJECTS = train.cpp
+TEST_HEADERS = tests/
 TESTS = tests.cpp
 
 all: test
@@ -13,5 +14,5 @@ ml: $(OBJECTS) $(HEADERS)
 debug: $(OBJECTS) $(HEADERS)
 	$(CC) $(DEBUGFLAGS) $(OBJECTS) -o debug
 
-test: $(TESTS) $(HEADERS)
+test: $(TESTS) $(HEADERS) $(TEST_HEADERS)
 	$(CC) $(CPPFLAGS) $(TESTS) -o test
