@@ -408,7 +408,13 @@ struct Tensor
     // Move Constructor
     Tensor (Tensor&& t) noexcept
     {
-        std::cout << "Moved Tensor" << std::endl;
+        Init (static_cast <Tensor&&> (t));
+        // Init (std::move (t));
+    };
+
+    void Init (Tensor&& t) noexcept
+    {
+        // std::cout << "Moved Tensor" << std::endl;
         
         elements = t.elements;
         t.elements = nullptr;
@@ -826,6 +832,12 @@ struct Tensor <T, 1>
     // Move Constructor
     Tensor (Tensor&& t) noexcept
     {
+        Init (static_cast <Tensor&&> (t));
+    };
+
+    void Init (Tensor&& t) noexcept
+    {
+        // std::cout << "Moved Tensor <T, 1>" << std::endl;
         elements = t.elements;
         t.elements = nullptr;
 
