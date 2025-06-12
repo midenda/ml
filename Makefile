@@ -1,6 +1,6 @@
 CC = clang++
-CPPFLAGS = -Wall -std=c++17 -g -ggdb
-DEBUGFLAGS = -Wall -fsanitize=address -fno-omit-frame-pointer -std=c++17 -g -ggdb
+CPPFLAGS = -Wall -std=c++2c -g -ggdb
+DEBUGFLAGS = -Wall -fsanitize=address -fno-omit-frame-pointer -std=c++2c -g -ggdb
 HEADERS = ml.h tensor.h benchmark.h regression.h
 OBJECTS = train.cpp
 TEST_HEADERS = tests/
