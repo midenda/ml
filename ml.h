@@ -12,19 +12,41 @@
 #endif
 
 #include "./tensor.h"
+#include "./tuple.h"
+// #include "./preprocess.h"
 
 // Implementation of std::conditional
-template <bool, typename T, typename F>
-struct conditional
+// template <bool, typename T, typename F>
+// struct conditional
+// {
+//     typedef T type;
+// };
+
+// template <typename T, typename F>
+// struct conditional <false, T, F>
+// {
+//     typedef F type;
+// };
+
+#if DEBUG_LEVEL == 1
+
+template <typename T, size_t N>
+void DebugPrinter (const T args [N])
 {
-    typedef T type;
+    for (uint i = 0; i < N; i++)
+    {
+        std::cout << args [i] << " ";
+    };
+    std::cout << std::endl; 
 };
 
-template <typename T, typename F>
-struct conditional <false, T, F>
+template <typename ...Args>
+void DebugPrinter (Args&&... args)
 {
-    typedef F type;
+    (std::cout << ... << args) << std::endl; 
 };
+
+#endif
 
 
 template <typename FunctionType, typename InputType, typename OutputType, size_t N>
@@ -40,6 +62,15 @@ typedef float (*activation_fn) (float);
 typedef float* (*output_fn) (float[], size_t);
 typedef float (*loss_fn) (float[], float[], size_t);
 typedef void (*loss_gradient) (float[], float[], float*, size_t);
+
+struct ActivationFunction
+{
+    activation_fn f;
+    activation_fn gradient;
+
+    ActivationFunction () {};
+    ActivationFunction (activation_fn f, activation_fn df) : f {f}, gradient {df} {};
+};
 
 //TODO: Refactor
 template <typename T, size_t Dim, bool Chns>
@@ -530,8 +561,31 @@ void CrossEntropyGradient (float output [], float expected [], float* gradient, 
     };
 };
 
-template <typename T, size_t Dim, bool Chns>
-T CrossEntropy (Tensor <T, Dim + Chns>& output, const Tensor <T, Dim + Chns>& expected)
+// template <typename T, size_t Dim, bool Chns>
+// T CrossEntropy (Tensor <T, Dim + Chns>& output, const Tensor <T, Dim + Chns>& expected)
+// {
+//     float total = 0.0;
+//     float epsilon = 0.01;
+
+//     for (uint i = 0; i < output.length; i++)
+//     {
+//         total += 0.5 * expected.elements [i] * log (pow (output.elements [i], 2) + epsilon);
+//     };
+
+//     return -total;
+// };
+
+// template <typename T, size_t Dim, bool Chns>
+// void CrossEntropyGradient (const Tensor <T, Dim + Chns>& output, const Tensor <T, Dim + Chns>& expected, Tensor <T, Dim + Chns>& g) 
+// {
+//     for (uint i = 0; i < output.length; i++)
+//     {
+//         g.elements [i] = output.elements [i] - expected.elements [i];
+//     };
+// };
+
+template <typename T, size_t N>
+T CrossEntropy (const Tensor <T, N>& output, const Tensor <T, N>& expected)
 {
     float total = 0.0;
     float epsilon = 0.01;
@@ -544,12 +598,12 @@ T CrossEntropy (Tensor <T, Dim + Chns>& output, const Tensor <T, Dim + Chns>& ex
     return -total;
 };
 
-template <typename T, size_t Dim, bool Chns>
-void CrossEntropyGradient (const Tensor <T, Dim + Chns>& output, const Tensor <T, Dim + Chns>& expected, Tensor <T, Dim + Chns>& g) 
+template <typename T, size_t N>
+void CrossEntropyGradient (const Tensor <T, N>& output, const Tensor <T, N>& expected, Tensor <T, N>& gradient)
 {
     for (uint i = 0; i < output.length; i++)
     {
-        g.elements [i] = output.elements [i] - expected.elements [i];
+        gradient.elements [i] = output.elements [i] - expected.elements [i];
     };
 };
 
@@ -656,6 +710,7 @@ void InitialiseKernel (NormalisedRandom <1>* r, Tensor <T, Dim + (2 * Chns)>* ke
 // ***---------  NETWORK LAYER DEFINITIONS  ---------*** //
 
 //TODO: more advanced scheduler
+//TODO: overload +-*/ etc to avoid "learning_rate.rate"
 struct LearningRate
 {
     const float time_constant;
@@ -674,6 +729,31 @@ struct LearningRate
 
         rate = (1.0 - 0.99 * alpha) * base_rate;
     };
+
+    void Update () {}; //TODO: store i internally ?
+    void Reset () {};  //TODO: reset to base
+};
+
+// template <typename layer>
+// struct input 
+// {
+//     template <typename T, size_t N>
+//     static_cast <BaseLayer <T, N>* layer;
+// };
+
+template <typename Input, typename Output> //TODO: make compatible with different layer types
+struct BaseLayer 
+{
+    using InputType = Input;
+    using OutputType = Output;
+
+    //? does the use of virtual functions incur a runtime cost from use of vtables?
+    virtual const OutputType& SetActivations   (const InputType&)                      = 0;
+    virtual const OutputType& SetGradients     (const InputType&, OutputType&, float)  = 0;
+    virtual void              ResetGradients   ()                                      = 0;
+    virtual void              UpdateParameters (LearningRate)                          = 0;
+    virtual float             Regulariser      (float)                                 = 0;
+    //TODO: add implementation details for other gradient descent algorithms (eg UpdateMomentum)
 };
 
 template <typename T>
@@ -696,11 +776,13 @@ struct RecurrentLayer
 
     float learning_rate;
 
+    //TODO: use init constructor or new tensor api
     RecurrentLayer (size_t dimension, size_t timesteps, float learning_rate = 0.01) 
         : timesteps {timesteps}, dimension {dimension}, learning_rate {learning_rate}
     {
         size_t dimensions [2] = {timesteps, dimension};
 
+        //TODO: better description: what does x represent?
         x             = new Tensor <T, 2> (dimensions);
         activations   = new Tensor <T, 2> (dimensions);
         outputs       = new Tensor <T, 2> (dimensions);
@@ -849,15 +931,16 @@ struct RecurrentLayer
         const float regulariser_input_hidden_weights  = Regulariser <T, 2> ((*input_hidden_weights));
         const float regulariser_hidden_output_weights = Regulariser <T, 2> ((*hidden_output_weights));
         const float regulariser_hidden_hidden_weights = Regulariser <T, 2> ((*hidden_hidden_weights));
-
+        
         const float regulariser_x_biases      = Regulariser <T, 1> ((*x_biases));
         const float regulariser_output_biases = Regulariser <T, 1> ((*output_biases));
-
+        
         // Update weights
         for (uint j = 0; j < dimension; j++)
         {
             for (uint k = 0; k < dimension; k++)
             {
+                //TODO: using regularisation incorrectly here
                 (*input_hidden_weights)  [j][k] -= learning_rate * input_hidden_gradient  [j][k] / regulariser_input_hidden_weights;
                 (*hidden_output_weights) [j][k] -= learning_rate * hidden_output_gradient [j][k] / regulariser_hidden_output_weights;
                 (*hidden_hidden_weights) [j][k] -= learning_rate * hidden_hidden_gradient [j][k] / regulariser_hidden_hidden_weights;
@@ -987,7 +1070,6 @@ struct ConvolutionLayer
     #endif
 };
 
-
 template <size_t depth>
 struct Layer
 {
@@ -1077,6 +1159,415 @@ struct Layer
             activations [i] = fn (x [i]);
         };
     };
+};
+
+struct FeedForwardLayer : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1>>
+{
+    Tensor <float, 2> weights;
+    Tensor <float, 1> biases;
+    Tensor <float, 1> activations;
+
+    // Gradients are stored in the layer to allow for training algorithms
+    // like momentum or RMSProp to introduce a time dependency.
+    Tensor <float, 2> weight_gradients;
+    Tensor <float, 1> bias_gradients;
+
+    ActivationFunction activation_function;
+
+    FeedForwardLayer () {};
+
+    FeedForwardLayer (const Tensor <float, 2>& w, const Tensor <float, 1>& b, ActivationFunction act_fn)
+    {
+        Init (w, b, act_fn);
+    };
+
+    // TODO: template constructor with new Tensor API (dimension)
+    void Init (const Tensor <float, 2>& w, const Tensor <float, 1>& b, ActivationFunction act_fn)
+    {
+        weights          .Init (w.dimensions, w.elements);
+        biases           .Init (b.length,     b.elements);
+        weight_gradients .Init (w.dimensions);
+        bias_gradients   .Init (w.dimensions [0]);
+        activations      .Init (w.dimensions [0]);
+        activation_function = act_fn; 
+    };
+
+    FeedForwardLayer (size_t M, size_t N, ActivationFunction act_fn)
+    {
+        // std::cout << "Constructing Layer! " << std::endl;
+        Init (M, N, act_fn);
+    };
+    
+    void Init (size_t M, size_t N, ActivationFunction act_fn)
+    {
+        // std::cout << "Initialising Layer with M=" << M << " and N=" << N << std::endl;
+
+        size_t dimensions [2] = {M, N};
+
+        weights          .Init (dimensions); 
+        biases           .Init (M);
+        weight_gradients .Init (dimensions);
+        bias_gradients   .Init (M);
+        activations      .Init (M);
+
+        weights .template Randomise <std::normal_distribution <float>> (0, 1);
+        biases  .template Randomise <std::normal_distribution <float>> (0, 1);
+        
+        activation_function = act_fn;
+    };
+
+    #if DEBUG_LEVEL == 1
+    FeedForwardLayer (const FeedForwardLayer&) = delete;
+    // {
+    //     std::cout << "Copying Layer! " << std::endl;
+    // };
+    #else
+        FeedForwardLayer (const FeedForwardLayer&) = delete;
+    #endif
+
+    // FeedForwardLayer (FeedForwardLayer&& other) = delete;
+    FeedForwardLayer (FeedForwardLayer&& other)
+    {
+        // std::cout << "Moving Layer! " << std::endl;
+        weights          .Init (static_cast <Tensor <float, 2>&&> (other.weights));
+        biases           .Init (static_cast <Tensor <float, 1>&&> (other.biases));
+        weight_gradients .Init (static_cast <Tensor <float, 2>&&> (other.weight_gradients));
+        bias_gradients   .Init (static_cast <Tensor <float, 1>&&> (other.bias_gradients));
+        activations      .Init (static_cast <Tensor <float, 1>&&> (other.activations));
+        activation_function = other.activation_function; 
+    };
+
+    ~FeedForwardLayer () 
+    {
+        // std::cout << "Deleting Layer! " << std::endl;
+    };
+
+    virtual const OutputType& SetActivations (const Tensor <float, 1>& input) override
+    {
+        for (uint i = 0; i < activations.length; i++)
+        {
+            float sum = 0.0;
+            for (uint j = 0; j < weights.dimensions [1]; j++)
+            {
+                sum += weights [i][j] * input [j];
+            };
+
+            activations [i] = activation_function.f (sum);
+        };
+
+        return activations;
+    };
+
+    virtual const OutputType& SetGradients (const Tensor <float, 1>& previous_activations, Tensor <float, 1>& gradient, float regularisation_factor) override
+    {
+        for (uint i = 0; i < gradient.length; i++)
+        {
+            gradient [i] *= activation_function.gradient (activations [i]);
+
+            bias_gradients [i] = gradient [i] + 2 * regularisation_factor * biases [i]; 
+            
+            for (uint j = 0; j < weights.dimensions [1]; j++)
+            {
+                weight_gradients [i][j] = gradient [i] * previous_activations [j] + 2 * regularisation_factor * weights [i][j];
+            };
+
+        };
+
+        float new_gradient [previous_activations.length];
+
+        for (uint i = 0; i < previous_activations.length; i++)
+        {
+            new_gradient [i] = 0.0;
+            for (uint j = 0; j < gradient.length; j++)
+            {
+                new_gradient [i] += gradient [j] * weights [j][i]; 
+            };
+        };
+
+        // TODO: avoid using Reshape ?
+        gradient.Reshape (previous_activations.length, new_gradient);
+
+        return activations;
+    };
+
+    virtual void ResetGradients () override {};
+
+    virtual void UpdateParameters (LearningRate learning_rate) override
+    {
+        float rate = learning_rate.rate; //TODO: improve api
+        for (uint i = 0; i < weights.length; i++)
+        {
+            weights.elements [i] -= rate * weight_gradients.elements [i];
+        };
+
+        for (uint i = 0; i < biases.length; i++)
+        {
+            biases.elements [i] -= rate * bias_gradients.elements [i];
+        };
+    };
+
+    virtual float Regulariser (float total) override
+    {
+        for (uint i = 0; i < weights.length; i++)
+        {
+            total += pow (weights.elements [i], 2);
+        };
+
+        return total;
+    };
+};
+
+template <typename Layer, size_t N>
+struct Layers : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1>> //? requires std::is_base_of <BaseLayer, Layer>::value ?
+{
+    using LossFunctionType = float (*) (const OutputType&, const OutputType&);
+    using LossGradientType = void  (*) (const OutputType&, const OutputType&, OutputType&);
+
+    Layer layers [N];
+    LossFunctionType LossFunction;
+    LossGradientType LossGradient;
+
+    Layers () {};
+
+    template <typename... Args>
+    Layers (Args... args)
+        : LossFunction (MeanSquaredError <float, 1>), 
+          LossGradient (MeanSquaredErrorGradient <float, 1>)
+    {
+        for (uint i = 0; i < N; i++)
+        {
+            layers [i].Init (args...);
+        };
+    };
+
+    Layers 
+    (
+        size_t dimensions [N + 1], 
+        ActivationFunction functions [N], 
+        LossFunctionType f = MeanSquaredError <float, 1>,
+        LossGradientType df = MeanSquaredErrorGradient <float, 1>
+    )
+        : LossFunction (f), LossGradient (df)
+    {
+        Init (dimensions, functions);
+    };
+
+    void Init 
+    (
+        size_t dimensions [N + 1], 
+        ActivationFunction functions [N], 
+        LossFunctionType f,
+        LossGradientType df
+    )
+    {
+        LossFunction (f);
+        LossGradient (df);
+        Init (dimensions, functions);
+    };
+
+    void Init 
+    (
+        size_t dimensions [N + 1], 
+        ActivationFunction functions [N]
+    )
+    {
+        for (uint i = 0; i < N; i++)
+        {
+            layers [i].Init (dimensions [i + 1], dimensions [i], functions [i]);
+        };
+    };
+
+    virtual const OutputType& SetActivations (const InputType& input) 
+    override
+    {
+        layers [0].SetActivations (input);
+
+        for (uint i = 1; i < N; i++)
+        {
+            layers [i].SetActivations (layers [i - 1].activations);
+        };
+
+        return layers [N - 1].activations;
+    };
+
+    virtual const OutputType& SetGradients (const InputType& input, Tensor <float, 1>& gradient, float regularisation_factor) 
+    override
+    {
+        for (uint i = N - 1; i > 0; i--)
+        {
+            layers [i].SetGradients (layers [i - 1].activations, gradient, regularisation_factor);
+        };
+        layers [0].SetGradients (input, gradient, regularisation_factor);
+
+        return layers [0].activations;
+    };
+    
+    virtual void UpdateParameters (LearningRate rate) 
+    override
+    {
+        for (uint i = 0; i < N; i++)
+        {
+            layers [i].UpdateParameters (rate);
+        }; 
+    };
+
+    virtual void ResetGradients () 
+    override
+    {
+        for (uint i = 0; i < N; i++)
+        {
+            layers [i].ResetGradients ();
+        };
+    };
+
+    virtual float Regulariser (float total) override
+    {
+        for (uint i = 0; i < N; i++)
+        {
+            total += layers [i].Regulariser (total);
+        };
+
+        return total;
+    };
+};
+
+
+template <typename... Layers> requires (std::is_base_of_v <BaseLayer <Tensor <float, 1>, Tensor <float, 1>>, Layers> && ...)
+class Network : private Tuple <Layers...>
+{
+// Type definitions and Tuple specialisations
+private:
+    using Base = BaseLayer <Tensor <float, 1>, Tensor <float, 1>>;
+    static constexpr const uint N = sizeof... (Layers);
+
+    template <uint I>
+    Tuple <Layers...> :: template Type <I>& Get () 
+    {
+        return Tuple <Layers...> :: template Get <I> ();
+    };
+
+// Private data members
+private:
+    //TODO: refactor learning rate 
+    LearningRate learning_rate; // { 0.1, 1000 };
+    float regularisation_factor; // = (float)1e-5;
+
+public:
+    Network (LearningRate rate, float regularisation, Layers&&... args) 
+        : Tuple <Layers...> (static_cast <Layers&&> (args)...), 
+            learning_rate { rate }, regularisation_factor { regularisation }
+    {
+    };
+
+    template <typename... Args>
+    Network (LearningRate rate, float regularisation, Args... args) 
+        : Tuple <Layers...> (args...),
+            learning_rate { rate }, regularisation_factor { regularisation }
+    {
+    };
+
+    
+    Network () = delete; // explicitly delete default constructor
+
+    const typename Base::OutputType& Propagate (const typename Base::InputType& input)
+    {
+        return Tuple <Layers...>::Propagate (&BaseLayer <Tensor <float, 1>, Tensor <float, 1>>::SetActivations, input);
+    };
+    
+    const typename Base::OutputType& BackPropagate (const Base::InputType& input, const Base::OutputType& output, const Base::OutputType& expected) 
+    {
+        Base::OutputType gradient (expected.dimensions);
+
+        //TODO: improve readability of Tuple <Layers...>::template Get <> ()
+        Get <N - 1> ().LossGradient (output, expected, gradient);
+
+        return Tuple <Layers...>::BackPropagate (&BaseLayer <Tensor <float, 1>, Tensor <float, 1>>::SetGradients, input, gradient, regularisation_factor);
+        // Tuple <Layers...>::ForEach (&BaseLayer <Tensor <float, 1>, Tensor <float, 1>>::ResetGradients);
+        
+    };
+    
+    void UpdateParameters () 
+    {
+        Tuple <Layers...>::ForEach (&BaseLayer <Tensor <float, 1>, Tensor <float, 1>>::UpdateParameters, learning_rate);
+    };
+
+    void UpdateHyperParameters () {}; //TODO:
+
+    float Regulariser ()
+    {
+        return Tuple <Layers...>::Propagate (&BaseLayer <Tensor <float, 1>, Tensor <float, 1>>::Regulariser, (float)0.01);
+    };
+
+    float Cost (const Base::OutputType& output, const Base::OutputType& expected) 
+    {
+        float loss = Get <N - 1> ().LossFunction (output, expected);
+        return loss + regularisation_factor * Regulariser (); //? regulariser per layer or per network?
+    };
+
+    //? might have some difficulties using templates if data read from file
+    template <size_t set_size, size_t epochs>
+    Tensor <float, 2> GradientDescent (const typename Base::InputType input_set [set_size], const typename Base::OutputType expected_set [set_size])
+    {
+        const size_t dimensions [2] = { epochs, set_size };
+        Tensor <float, 2> costs (dimensions);
+
+        uint indices [set_size];
+        for (uint i = 0; i < set_size; i++)
+        {
+            indices [i] = i;
+        };
+
+        uint progress = 0;
+        
+        for (uint i = 0; i < epochs; i++)
+        {
+            std::shuffle (indices, indices + set_size, std::mt19937 (SEED));
+            
+            for (uint j = 0; j < set_size; j++)
+            {
+                learning_rate.Update (j + i * set_size);
+                
+                uint index = indices [j];
+                
+                const typename Base::OutputType& output = Propagate (input_set [index]);
+                
+                costs [i][j] = Cost (output, expected_set [index]);
+                
+                BackPropagate (input_set [index], output, expected_set [index]);
+                UpdateParameters ();
+                
+                progress = (j + i * set_size) * 100 / (epochs * set_size);
+                if (((progress * 10) % 10) == 0)
+                {
+                    std::cout << '\r' << "progress: ";
+                    for (uint k = 0; k < progress/2; k++)
+                    {
+                        std::cout << '#';
+                    };
+
+                    for (uint k = 0; k < 50 - progress/2; k++)
+                    {
+                        std::cout << ' ';
+                    };
+
+                    std::cout << progress << '%';
+                    std::cout << std::flush;
+                }; 
+            }; 
+        };
+        std::cout << std::flush << "\r\e[K" << "Training Complete!" << std::endl;
+
+        // Returned by copy elision 
+        return costs; 
+    };
+
+    //TODO: implement other gradient descent algorithms
+    Tensor <float, 2> GD_Basic () {};
+    Tensor <float, 2> GD_Stochastic () {};
+    Tensor <float, 2> GD_StochasticMomentum () {}; 
+    Tensor <float, 2> StochasticNesterov () {};
+    Tensor <float, 2> GD_RMSProp () {};
+    Tensor <float, 2> GD_RMSPropNesterov () {};
 };
 
 template <size_t depth>
