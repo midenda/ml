@@ -164,11 +164,12 @@ template <typename T, size_t N>
 struct PrintInput
 {
     const Tensor <T, N>& tensor;
+    std::ostream& os;
     size_t truncation_length;
     size_t spacing;
 
-    PrintInput (const Tensor <T, N>& tensor, size_t truncation_length, size_t spacing)
-        : tensor {tensor}, truncation_length {truncation_length}, spacing {spacing}
+    PrintInput (const Tensor <T, N>& tensor, std::ostream& os, size_t truncation_length, size_t spacing)
+        : tensor {tensor}, os {os}, truncation_length {truncation_length}, spacing {spacing}
     {};
 };
 
@@ -182,6 +183,7 @@ template <typename T, size_t N>
 void PrintElement (const PrintInput <T, N>& input, void* output, uint* idx)
 {
     const Tensor <T, N>& tensor = input.tensor;
+    std::ostream& os = input.os;
     size_t truncation_length = input.truncation_length;
     size_t spacing = input.spacing;
 
@@ -190,19 +192,19 @@ void PrintElement (const PrintInput <T, N>& input, void* output, uint* idx)
     
     // Crops each element (to 8 characters long) so display is uniform
     std::string character = std::to_string (tensor.index (index)).substr (0, truncation_length);
-    std::cout << character;
+    os << character;
     
     for (uint i = 0; i < truncation_length - character.length () + spacing; i++)
     {
-        std::cout << " ";
+        os << " ";
     };
 };
 
 //TODO: Vary print formatting based on window size
 template <typename T, size_t N>
-void PrintTensor (const Tensor <T, N>& tensor, size_t truncation_length = 8, size_t spacing = 2)
+void PrintTensor (const Tensor <T, N>& tensor, std::ostream& os = std::cout, size_t truncation_length = 8, size_t spacing = 2)
 {
-    PrintInput <T, N> input (tensor, truncation_length, spacing);
+    PrintInput <T, N> input (tensor, os, truncation_length, spacing);
 
     size_t dim [N];
     alternating_sort (tensor.dimensions, dim, N);
@@ -687,21 +689,27 @@ struct Tensor
         };
     };
 
-    void Print (const char* printname = nullptr, size_t truncation_length = 8) const
+    friend std::ostream& operator<<(std::ostream& os, const Tensor <T, N>& tensor)
+    {
+        tensor.Print (nullptr, os);
+        return os;
+    };
+
+    void Print (const char* printname = nullptr, std::ostream& os = std::cout, size_t truncation_length = 8) const
     {
         size_t spacing = 2;
 
         if (printname != nullptr)
-            std::cout << "Printing:     " << printname << "... " << std::endl;
+            os << "Printing:     " << printname << "... " << std::endl;
         else if (name != nullptr)
-            std::cout << "Printing:     " << name << "... " << std::endl;
+            os << "Printing:     " << name << "... " << std::endl;
 
-        PrintTensor <T, N> (*this, truncation_length, spacing);
+        PrintTensor <T, N> (*this, os, truncation_length, spacing);
 
-        std::cout << "\n                                             ---***---                                             " << std::endl;
+        os << "\n                                             ---***---                                             " << std::endl;
     };
 
-    void PrintElements () const 
+    void PrintElements (std::ostream& os = std::cout) const 
     {
         size_t length = dimensions [0];
         for (uint i = 1; i < N; i++)
@@ -709,12 +717,12 @@ struct Tensor
             length *= dimensions [i];
         };
 
-        std::cout << std::endl;
+        os << std::endl;
         for (uint i = 0; i < length; i++)
         {
-            std::cout << elements [i] << " ";
+            os << elements [i] << " ";
         };
-        std::cout << std::endl;
+        os << std::endl;
     };
 
 
@@ -989,18 +997,24 @@ struct Tensor <T, 1>
 
     #if DEBUG_LEVEL == 1
 
-    void Print (const char* printname = nullptr, size_t truncation_length = 8) const
+    friend std::ostream& operator<<(std::ostream& os, const Tensor <T, 1>& tensor)
+    {
+        tensor.Print (nullptr, os);
+        return os;
+    };
+
+    void Print (const char* printname = nullptr, std::ostream& os = std::cout, size_t truncation_length = 8) const
     {
         size_t spacing = 2;
 
         if (printname != nullptr)
-            std::cout << "Printing:     " << printname << "... " << std::endl;
+            os << "Printing:     " << printname << "... " << std::endl;
         else if (name != nullptr)
-            std::cout << "Printing:     " << name << "... " << std::endl;
+            os << "Printing:     " << name << "... " << std::endl;
 
-        PrintTensor <T, 1> (*this, truncation_length, spacing);
+        PrintTensor <T, 1> (*this, os, truncation_length, spacing);
 
-        std::cout << "\n                                             ---***---                                             " << std::endl;
+        os << "\n                                             ---***---                                             " << std::endl;
     };
 
     #endif
