@@ -1580,6 +1580,7 @@ enum Algorithm
     RMSProp,
     RMSPropNesterov,
     NesterovInterim
+    //TODO: Adam
 };
 
 template <typename... Layers> requires (std::is_base_of_v <BaseLayer <Tensor <float, 1>, Tensor <float, 1>>, Layers> && ...)

@@ -4,17 +4,15 @@
 ### Fix
   -  Identify why Convolution Backpropagation is/isn't working correctly
   -  Make elements of `const Tensor` actually behave as `const`
-  -  Change gradient descent algorithms in Network so that they don't return a pointer for costs
   -  Standardise behaviour for `Tensor.dimensions`
   
 -----------------------------------------------------------------------
 
 ### Next on the Agenda
+ -  Implement Batch Normalisation
  -  Add depth to `RecurrentLayer`
- -  Combine `Layer`, `RecurrentLayer` and `ConvolutionLayer` into network object
  -  Mark members of big classes / structs as private / public
  -  Add `Tensor` support to `Regression`
- -  Add move constructor to `Tensor`, check large data not being copied unnecessarily eg pass into functions by reference
 
 -----------------------------------------------------------------------
 
@@ -35,6 +33,7 @@
 -----------------------------------------------------------------------
 
 ### Implement
+ -  Batch Normalisation
  -  Support Vector Machine 
  -  Memory allocation tracker
  -  Data preprocessing pipeline
@@ -51,32 +50,23 @@
 ### Improve
  -  Add overview analysis to benchmarking
  -  Mark members of big classes / structs as `private` / `public`
- -  Add move constructor to `Tensor`, check large data not being copied unnecessarily eg pass into functions by reference
  -  Mark variables as `const` unless necessarily variable
  -  Improve python graphing - perform regression on loss during training to identify learning patterns
 
 -----------------------------------------------------------------------
 
 ### Change
- -  Switch to using `Tensor` for connected layer weights, biases etc
- -  Find way of representing layers as a graph of nodes, with forwards/backwards propagation defined as edges between nodes
 
 -----------------------------------------------------------------------
 
 ### Research
  -  Find decent default values for hyperparameters like learning rate etc
  -  Research potential parallelisations: CUDA or openCL? or just CPU threads
- -  Read regularisation chapter
+ -  Research regularisation of biases
+ -  Find way of representing layers as a graph of nodes, with forwards/backwards propagation defined as edges between nodes
 
 -----------------------------------------------------------------------
 
 ### Refactor
- -  Combine layers and convolutional layers into network object (Singleton class?) with same backpropagation algorithms/structure etc for `FullyConnectedLayers`, pass final gradient from one stage to the next
-     - Rename `Network` -> `FullyConnectedLayers`
-     - New Network contains:   
-         - `ConvolutionalLayers`
-         - `FullyConnectedLayers`
-         - `RecurrentLayers`
-         - ...
 
 -----------------------------------------------------------------------
