@@ -235,11 +235,11 @@ template <typename T, size_t N>
 struct Tensor
 {
     size_t dimensions [N];
-    size_t length;
-    uint layer;
-    T* elements;
+    size_t length = 0;
+    uint layer = 0;
+    T* elements = nullptr;
     
-    Tensor <T, N - 1>** children;
+    Tensor <T, N - 1>** children = nullptr;
 
     #if DEBUG_LEVEL == 1
 
@@ -396,10 +396,12 @@ struct Tensor
         // Child tensors do not own the elements resource, only reference it
         // elements pointers are deleted as they go out of scope, and then
         // the memory itself is deleted [] by the parent tensor
-        if  (layer == 0)
+        if  (layer == 0 && elements != nullptr)
         {
             delete [] elements;
         };
+
+        //TODO: warn if destroying uninitialised tensor
     };
 
     // Copy Constructor
@@ -740,9 +742,9 @@ template <typename T>
 struct Tensor <T, 1>
 {
     size_t dimensions [1];
-    size_t length;
-    uint layer;
-    T* elements;
+    size_t length = 0;
+    uint layer = 0;
+    T* elements = nullptr;
 
     #if DEBUG_LEVEL == 1
 
@@ -820,10 +822,12 @@ struct Tensor <T, 1>
 
     ~Tensor () 
     {
-        if  (layer == 0)
+        if  (layer == 0 && elements != nullptr)
         {
             delete [] elements;
         };
+
+        //TODO: warn if destroying uninitialised tensor
     };
 
     // Copy constructor
