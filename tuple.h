@@ -103,9 +103,9 @@ private:
             };
 
             template <class Class, typename OutputType, typename... InputTypes> 
-            void ForEach (OutputType (Class::* F) (InputTypes...), InputTypes... args) 
+            void ForEach (OutputType (Class::* F) (InputTypes...), InputTypes... inputs) 
             {
-                ((Get <integers> ().*F)(args...), ...);
+                ((Get <integers> ().*F)(inputs...), ...);
             };
             
             template <uint I = 0, typename OutputType, class Class, typename InputType, typename... Parameters, typename... Args>
