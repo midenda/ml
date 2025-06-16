@@ -445,7 +445,7 @@ template <typename T, size_t N>
 void Softmax (const Tensor <T, N>& x, Tensor <T, N>& y) 
 {
     float total = 0.0;
-    float stability = - Max <T, N> (x); //TODO: add a comment here for clarity 
+    float stability = - Max <T, N> (x); // Cancels out of resulting expression //TODO: add a comment here for clarity 
 
     for (int i = 0; i < x.length; i++)
     {
@@ -630,6 +630,11 @@ void NegativeLogLikelyhoodGradient (const Tensor <T, N>& output, const Tensor <T
     };
 };
 
+const Tensor <float, 1>& Identity (const Tensor <float, 1>& input)
+{
+    return input;
+};
+
 template <typename T, size_t N>
 float Regulariser (const Tensor <T, N>& input)
 {
@@ -710,7 +715,6 @@ void InitialiseKernel (NormalisedRandom <1>* r, Tensor <T, Dim + (2 * Chns)>* ke
 // ***---------  NETWORK LAYER DEFINITIONS  ---------*** //
 
 //TODO: more advanced scheduler
-//TODO: overload +-*/ etc to avoid "learning_rate.rate"
 struct LearningRate
 {
     const float time_constant;
@@ -732,6 +736,11 @@ struct LearningRate
 
     void Update () {}; //TODO: store i internally ?
     void Reset () {};  //TODO: reset to base
+
+    operator float () const
+    {
+        return rate;
+    };
 };
 
 template <typename Input, typename Output> //TODO: make compatible with different layer types
@@ -741,12 +750,45 @@ struct BaseLayer
     using OutputType = Output;
 
     //? does the use of virtual functions incur a runtime cost from use of vtables?
-    virtual const OutputType& SetActivations   (const InputType&)                      = 0;
-    virtual const OutputType& SetGradients     (const InputType&, OutputType&, float)  = 0;
-    virtual void              ResetGradients   ()                                      = 0;
-    virtual void              UpdateParameters (LearningRate)                          = 0;
-    virtual float             Regulariser      (float)                                 = 0;
-    //TODO: add implementation details for other gradient descent algorithms (eg UpdateMomentum)
+    virtual const OutputType&
+    SetActivations (const InputType&)
+    = 0;
+    
+    virtual const OutputType&
+    SetGradients (const InputType&, OutputType&, float, float)
+    = 0;
+    
+    virtual void
+    ResetGradients ()
+    = 0;
+    
+    virtual void
+    UpdateParameters (LearningRate)
+    = 0;
+    
+    virtual void
+    UpdateMomentum (LearningRate, float)
+    = 0;
+    
+    virtual void
+    UpdateRMSProp (LearningRate, float)
+    = 0;
+    
+    virtual void 
+    UpdateRMSPropNesterov (LearningRate, float, float)
+     = 0;
+    
+    virtual void
+    UpdateNesterovInterim (float)
+    = 0;
+    
+    virtual float
+    Regulariser (float)
+    = 0;
+
+    virtual void
+    Reset ()
+    = 0;
 };
 
 template <typename T>
@@ -1069,6 +1111,18 @@ struct FeedForwardLayer : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1
     Tensor <float, 1> biases;
     Tensor <float, 1> activations;
 
+    //TODO: benchmark RMSP, velocities - this is a lot more data per layer
+    //? pointer to store in seperate object? could dependency inject where necessary
+    //? tensor currently uses pointers to data anyway so may not matter
+
+    // Used for Root Mean Square Propagation 
+    Tensor <float, 2> weight_RMSP;
+    Tensor <float, 1> bias_RMSP;
+
+    // Used for momentum-based gradient descent algorithms
+    Tensor <float, 2> weight_velocities;
+    Tensor <float, 1> bias_velocities;
+
     // Gradients are stored in the layer to allow for training algorithms
     // like momentum or RMSProp to introduce a time dependency.
     Tensor <float, 2> weight_gradients;
@@ -1086,11 +1140,15 @@ struct FeedForwardLayer : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1
     // TODO: template constructor with new Tensor API (dimension)
     void Init (const Tensor <float, 2>& w, const Tensor <float, 1>& b, ActivationFunction act_fn)
     {
-        weights          .Init (w.dimensions, w.elements);
-        biases           .Init (b.length,     b.elements);
-        weight_gradients .Init (w.dimensions);
-        bias_gradients   .Init (w.dimensions [0]);
-        activations      .Init (w.dimensions [0]);
+        weights           .Init (w.dimensions, w.elements);
+        biases            .Init (b.length,     b.elements);
+        weight_gradients  .Init (w.dimensions);
+        bias_gradients    .Init (b.dimensions [0]);
+        weight_RMSP       .Init (w.dimensions);
+        bias_RMSP         .Init (b.dimensions [0]);
+        weight_velocities .Init (w.dimensions);
+        bias_velocities   .Init (b.dimensions [0]);
+        activations       .Init (w.dimensions [0]);
         activation_function = act_fn; 
     };
 
@@ -1106,11 +1164,15 @@ struct FeedForwardLayer : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1
 
         size_t dimensions [2] = {M, N};
 
-        weights          .Init (dimensions); 
-        biases           .Init (M);
-        weight_gradients .Init (dimensions);
-        bias_gradients   .Init (M);
-        activations      .Init (M);
+        weights           .Init (dimensions); 
+        biases            .Init (M);
+        weight_gradients  .Init (dimensions);
+        bias_gradients    .Init (M);
+        weight_RMSP       .Init (dimensions);
+        bias_RMSP         .Init (M);
+        weight_velocities .Init (dimensions);
+        bias_velocities   .Init (M);
+        activations       .Init (M);
 
         weights .template Randomise <std::normal_distribution <float>> (0, 1);
         biases  .template Randomise <std::normal_distribution <float>> (0, 1);
@@ -1131,11 +1193,15 @@ struct FeedForwardLayer : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1
     FeedForwardLayer (FeedForwardLayer&& other)
     {
         // std::cout << "Moving Layer! " << std::endl;
-        weights          .Init (static_cast <Tensor <float, 2>&&> (other.weights));
-        biases           .Init (static_cast <Tensor <float, 1>&&> (other.biases));
-        weight_gradients .Init (static_cast <Tensor <float, 2>&&> (other.weight_gradients));
-        bias_gradients   .Init (static_cast <Tensor <float, 1>&&> (other.bias_gradients));
-        activations      .Init (static_cast <Tensor <float, 1>&&> (other.activations));
+        weights           .Init (static_cast <Tensor <float, 2>&&> (other.weights));
+        biases            .Init (static_cast <Tensor <float, 1>&&> (other.biases));
+        weight_gradients  .Init (static_cast <Tensor <float, 2>&&> (other.weight_gradients));
+        bias_gradients    .Init (static_cast <Tensor <float, 1>&&> (other.bias_gradients));
+        weight_RMSP       .Init (static_cast <Tensor <float, 2>&&> (other.weight_RMSP));
+        bias_RMSP         .Init (static_cast <Tensor <float, 1>&&> (other.bias_RMSP));
+        weight_velocities .Init (static_cast <Tensor <float, 2>&&> (other.weight_velocities));
+        bias_velocities   .Init (static_cast <Tensor <float, 1>&&> (other.bias_velocities));
+        activations       .Init (static_cast <Tensor <float, 1>&&> (other.activations));
         activation_function = other.activation_function; 
     };
 
@@ -1144,7 +1210,8 @@ struct FeedForwardLayer : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1
         // std::cout << "Deleting Layer! " << std::endl;
     };
 
-    virtual const OutputType& SetActivations (const Tensor <float, 1>& input) override
+    virtual const OutputType& SetActivations (const Tensor <float, 1>& input) 
+    override
     {
         for (uint i = 0; i < activations.length; i++)
         {
@@ -1160,17 +1227,19 @@ struct FeedForwardLayer : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1
         return activations;
     };
 
-    virtual const OutputType& SetGradients (const Tensor <float, 1>& previous_activations, Tensor <float, 1>& gradient, float regularisation_factor) override
+    virtual const OutputType& SetGradients (const Tensor <float, 1>& previous_activations, Tensor <float, 1>& gradient, float regularisation_factor, float mean_batch = 1.0) 
+    override
     {
         for (uint i = 0; i < gradient.length; i++)
         {
             gradient [i] *= activation_function.gradient (activations [i]);
 
-            bias_gradients [i] = gradient [i] + 2 * regularisation_factor * biases [i]; 
+            // bias_gradients [i] += mean_batch * (gradient [i] + 2 * regularisation_factor * biases [i]); 
+            bias_gradients [i] += mean_batch * gradient [i]; 
             
             for (uint j = 0; j < weights.dimensions [1]; j++)
             {
-                weight_gradients [i][j] = gradient [i] * previous_activations [j] + 2 * regularisation_factor * weights [i][j];
+                weight_gradients [i][j] += mean_batch * (gradient [i] * previous_activations [j] + 2 * regularisation_factor * weights [i][j]);
             };
 
         };
@@ -1192,30 +1261,123 @@ struct FeedForwardLayer : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1
         return activations;
     };
 
-    virtual void ResetGradients () override {};
-
-    virtual void UpdateParameters (LearningRate learning_rate) override
+    virtual void ResetGradients () 
+    override 
     {
-        float rate = learning_rate.rate; //TODO: improve api
+        bias_gradients  .SetElements ((float)0.0);
+        weight_gradients.SetElements ((float)0.0);
+    };
+
+    virtual void UpdateParameters (LearningRate learning_rate) 
+    override
+    {
         for (uint i = 0; i < weights.length; i++)
         {
-            weights.elements [i] -= rate * weight_gradients.elements [i];
+            weights.elements [i] -= learning_rate * weight_gradients.elements [i];
         };
 
         for (uint i = 0; i < biases.length; i++)
         {
-            biases.elements [i] -= rate * bias_gradients.elements [i];
+            biases.elements [i] -= learning_rate * bias_gradients.elements [i];
         };
     };
 
-    virtual float Regulariser (float total) override
+    virtual void
+    UpdateMomentum (LearningRate learning_rate, float momentum)
+    override
+    {
+        for (uint i = 0; i < weights.length; i++)
+        {
+            weight_velocities.elements [i] = momentum * weight_velocities.elements [i] - learning_rate * weight_gradients.elements [i];
+            weights.elements [i] += weight_velocities.elements [i];
+        };
+        
+        for (uint i = 0; i < biases.length; i++)
+        {
+            bias_velocities.elements [i] = momentum * bias_velocities.elements [i] - learning_rate * bias_gradients.elements [i];
+            biases.elements [i] += bias_velocities.elements [i];
+        };
+    };
+    
+    virtual void
+    UpdateRMSProp (LearningRate learning_rate, float decay_rate)
+    override
+    {
+        float stabiliser = 1e-6;
+
+        for (uint i = 0; i < weights.length; i++)
+        {
+            weight_RMSP.elements [i] = decay_rate * weight_RMSP.elements [i] + (1 - decay_rate) * pow (weight_gradients.elements [i], 2);
+            weights.elements [i] -= learning_rate * weight_gradients.elements [i] / sqrt (stabiliser + weight_RMSP.elements [i]);
+        };
+
+        for (uint i = 0; i < biases.length; i++)
+        {
+            bias_RMSP.elements [i] = decay_rate * bias_RMSP.elements [i] + (1 - decay_rate) * pow (bias_gradients.elements [i], 2);
+            biases.elements [i] -= learning_rate * bias_gradients.elements [i] / sqrt (stabiliser + bias_RMSP.elements [i]);
+        };
+    };
+    
+    virtual void 
+    UpdateRMSPropNesterov (LearningRate learning_rate, float momentum, float decay_rate)
+    override
+    {   
+        for (uint i = 0; i < weights.length; i++)
+        {
+            weight_RMSP.elements [i] = decay_rate * weight_RMSP.elements [i] + (1 - decay_rate) * pow (weight_gradients.elements [i], 2);
+            weight_velocities.elements [i] = momentum * weight_velocities.elements [i] - learning_rate * weight_gradients.elements [i] / sqrt (weight_RMSP.elements [i]);
+            weights.elements [i] += weight_velocities.elements [i];
+        };
+
+        for (uint i = 0; i < biases.length; i++)
+        {
+            bias_RMSP.elements [i] = decay_rate * bias_RMSP.elements [i] + (1 - decay_rate) * pow (bias_gradients.elements [i], 2);
+            bias_velocities.elements [i] = momentum * bias_velocities.elements [i] - learning_rate * bias_gradients.elements [i] / sqrt (bias_RMSP.elements [i]);
+            biases.elements [i] += bias_velocities.elements [i];
+        };
+    };
+    
+    virtual void
+    UpdateNesterovInterim (float momentum)
+    override
+    {
+        for (uint i = 0; i < weights.length; i++)
+        {
+            weights.elements [i] += momentum * weight_velocities.elements [i];
+        };
+        for (uint i = 0; i < biases.length; i++)
+        {
+            biases.elements [i] += momentum * bias_velocities.elements [i];
+        };
+    };
+
+    virtual float Regulariser (float total) 
+    override
     {
         for (uint i = 0; i < weights.length; i++)
         {
             total += pow (weights.elements [i], 2);
         };
+        // for (uint i = 0; i < biases.length; i++)
+        // {
+        //     total += pow (biases.elements [i], 2);
+        // };
 
         return total;
+    };
+
+    virtual void Reset ()
+    override
+    {
+        weights           .SetElements (0.0); 
+        biases            .SetElements (0.0);
+        weight_gradients  .SetElements (0.0);
+        bias_gradients    .SetElements (0.0);
+        weight_RMSP       .SetElements (0.0);
+        bias_RMSP         .SetElements (0.0);
+        weight_velocities .SetElements (0.0);
+        bias_velocities   .SetElements (0.0);
+        activations       .SetElements (0.0);
     };
 };
 
@@ -1292,24 +1454,56 @@ struct Layers : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1>> //? req
         return layers [N - 1].activations;
     };
 
-    virtual const OutputType& SetGradients (const InputType& input, Tensor <float, 1>& gradient, float regularisation_factor) 
+    virtual const OutputType& SetGradients (const InputType& input, Tensor <float, 1>& gradient, float regularisation_factor, float mean_batch = 1.0) 
     override
     {
         for (uint i = N - 1; i > 0; i--)
         {
-            layers [i].SetGradients (layers [i - 1].activations, gradient, regularisation_factor);
+            layers [i].SetGradients (layers [i - 1].activations, gradient, regularisation_factor, mean_batch);
         };
-        layers [0].SetGradients (input, gradient, regularisation_factor);
+        layers [0].SetGradients (input, gradient, regularisation_factor, mean_batch);
 
         return layers [0].activations;
     };
     
-    virtual void UpdateParameters (LearningRate rate) 
+    virtual void UpdateParameters (LearningRate learning_rate) 
     override
     {
         for (uint i = 0; i < N; i++)
         {
-            layers [i].UpdateParameters (rate);
+            layers [i].UpdateParameters (learning_rate);
+        }; 
+    };
+    virtual void UpdateMomentum (LearningRate learning_rate, float momentum) 
+    override
+    {
+        for (uint i = 0; i < N; i++)
+        {
+            layers [i].UpdateMomentum (learning_rate, momentum);
+        }; 
+    };
+    virtual void UpdateRMSProp (LearningRate learning_rate, float decay_rate) 
+    override
+    {
+        for (uint i = 0; i < N; i++)
+        {
+            layers [i].UpdateRMSProp (learning_rate, decay_rate);
+        }; 
+    };
+    virtual void UpdateRMSPropNesterov (LearningRate learning_rate, float momentum, float decay_rate) 
+    override
+    {
+        for (uint i = 0; i < N; i++)
+        {
+            layers [i].UpdateRMSPropNesterov (learning_rate, momentum, decay_rate);
+        }; 
+    };
+    virtual void UpdateNesterovInterim (float momentum) 
+    override
+    {
+        for (uint i = 0; i < N; i++)
+        {
+            layers [i].UpdateNesterovInterim (momentum);
         }; 
     };
 
@@ -1322,7 +1516,8 @@ struct Layers : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1>> //? req
         };
     };
 
-    virtual float Regulariser (float total) override
+    virtual float Regulariser (float total) 
+    override
     {
         for (uint i = 0; i < N; i++)
         {
@@ -1331,8 +1526,61 @@ struct Layers : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1>> //? req
 
         return total;
     };
+
+    virtual void Reset ()
+    override
+    {
+        for (uint i = 0; i < N; i++)
+        {
+            layers [i].Reset ();
+        };
+    };
 };
 
+struct ProgressBar
+{
+    size_t total;        
+
+    ProgressBar (size_t total, uint i = 0) : total { total } {};
+
+    ~ProgressBar ()
+    {
+        std::cout << std::flush << "\r\e[K" << "Training Complete!" << std::endl;
+    };
+
+    void operator()(uint i) 
+    {
+        uint progress = i * 100 / total;
+
+        if (((progress * 10) % 10) == 0)
+        {
+            std::cout << '\r' << "progress: ";
+            for (uint j = 0; j < progress/2; j++)
+            {
+                std::cout << '#';
+            };
+
+            for (uint j = 0; j < 50 - progress/2; j++)
+            {
+                std::cout << ' ';
+            };
+
+            std::cout << progress << '%';
+            std::cout << std::flush;
+        }; 
+    };
+};
+
+enum Algorithm 
+{
+    Basic,
+    Stochastic,
+    StochasticMomentum,
+    StochasticNesterov,
+    RMSProp,
+    RMSPropNesterov,
+    NesterovInterim
+};
 
 template <typename... Layers> requires (std::is_base_of_v <BaseLayer <Tensor <float, 1>, Tensor <float, 1>>, Layers> && ...)
 class Network : private Tuple <Layers...>
@@ -1341,6 +1589,7 @@ class Network : private Tuple <Layers...>
 private:
     using Base = BaseLayer <Tensor <float, 1>, Tensor <float, 1>>;
     static constexpr const uint N = sizeof... (Layers);
+    using OutputFunction = const Tensor <float, 1>& (*) (const Tensor <float, 1>&);
 
     template <uint I>
     Tuple <Layers...> :: template Type <I>& Get () 
@@ -1353,51 +1602,86 @@ private:
     //TODO: refactor learning rate 
     LearningRate learning_rate; // { 0.1, 1000 };
     float regularisation_factor; // = (float)1e-5;
+    float momentum; // 0.9
+    float rms_decay_rate; // 0.1
+    OutputFunction output_fn;
 
 public:
-    Network (LearningRate rate, float regularisation, Layers&&... args) 
+    Network (LearningRate learning_rate, float regularisation_factor, float momentum, float rms_decay_rate, OutputFunction output_fn, Layers&&... args) 
         : Tuple <Layers...> (static_cast <Layers&&> (args)...), 
-            learning_rate { rate }, regularisation_factor { regularisation }
+            learning_rate { learning_rate }, regularisation_factor { regularisation_factor },
+            momentum { momentum }, rms_decay_rate { rms_decay_rate }, output_fn { output_fn }
     {
     };
 
     template <typename... Args>
-    Network (LearningRate rate, float regularisation, Args... args) 
+    Network (LearningRate learning_rate, float regularisation_factor, float momentum, float rms_decay_rate, OutputFunction output_fn, Args... args) 
         : Tuple <Layers...> (args...),
-            learning_rate { rate }, regularisation_factor { regularisation }
+            learning_rate { learning_rate }, regularisation_factor { regularisation_factor },
+            momentum { momentum }, rms_decay_rate { rms_decay_rate }, output_fn { output_fn }
     {
     };
 
-    
     Network () = delete; // explicitly delete default constructor
 
     const typename Base::OutputType& Propagate (const typename Base::InputType& input)
     {
-        return Tuple <Layers...>::Propagate (&BaseLayer <Tensor <float, 1>, Tensor <float, 1>>::SetActivations, input);
+        return Tuple <Layers...>::Propagate (&Base::SetActivations, input);
     };
     
-    const typename Base::OutputType& BackPropagate (const Base::InputType& input, const Base::OutputType& output, const Base::OutputType& expected) 
+    const typename Base::OutputType& BackPropagate (const Base::InputType& input, const Base::OutputType& output, const Base::OutputType& expected, float mean_batch) 
     {
         Base::OutputType gradient (expected.dimensions);
 
         //TODO: improve readability of Tuple <Layers...>::template Get <> ()
         Get <N - 1> ().LossGradient (output, expected, gradient);
 
-        return Tuple <Layers...>::BackPropagate (&BaseLayer <Tensor <float, 1>, Tensor <float, 1>>::SetGradients, input, gradient, regularisation_factor);
-        // Tuple <Layers...>::ForEach (&BaseLayer <Tensor <float, 1>, Tensor <float, 1>>::ResetGradients);
-        
-    };
-    
-    void UpdateParameters () 
-    {
-        Tuple <Layers...>::ForEach (&BaseLayer <Tensor <float, 1>, Tensor <float, 1>>::UpdateParameters, learning_rate);
+        return Tuple <Layers...>::BackPropagate (&Base::SetGradients, input, gradient, regularisation_factor, mean_batch);  
     };
 
-    void UpdateHyperParameters () {}; //TODO:
+    void ResetGradients ()
+    {
+        Tuple <Layers...>::ForEach (&Base::ResetGradients);
+    };
+    
+    void UpdateParameters (Algorithm algorithm) 
+    {
+        switch (algorithm)
+        {
+            case Basic:
+                Tuple <Layers...>::ForEach (&Base::UpdateParameters, learning_rate);
+                break;
+            case Stochastic:
+                Tuple <Layers...>::ForEach (&Base::UpdateParameters, learning_rate);
+                break;
+            case StochasticMomentum:
+                Tuple <Layers...>::ForEach (&Base::UpdateMomentum, learning_rate, momentum);
+                break;
+            case StochasticNesterov:
+                Tuple <Layers...>::ForEach (&Base::UpdateMomentum, learning_rate, momentum);
+                break;
+            case RMSProp:
+                Tuple <Layers...>::ForEach (&Base::UpdateRMSProp, learning_rate, rms_decay_rate);
+                break;
+            case RMSPropNesterov:
+                Tuple <Layers...>::ForEach (&Base::UpdateRMSPropNesterov, learning_rate, momentum, rms_decay_rate);
+                break;
+            case NesterovInterim:
+                Tuple <Layers...>::ForEach (&Base::UpdateNesterovInterim, momentum);
+                break;
+        };
+    };
+
+    void UpdateHyperParameters () {}; //TODO: intelligent scheduling etc
 
     float Regulariser ()
     {
-        return Tuple <Layers...>::Propagate (&BaseLayer <Tensor <float, 1>, Tensor <float, 1>>::Regulariser, (float)0.01);
+        return Tuple <Layers...>::Propagate (&Base::Regulariser, (float)0.01);
+    };
+
+    void Reset ()
+    {
+        Tuple <Layers...>::ForEach (&Base::Reset);
     };
 
     float Cost (const Base::OutputType& output, const Base::OutputType& expected) 
@@ -1407,10 +1691,12 @@ public:
     };
 
     //? might have some difficulties using templates if data read from file
-    template <size_t set_size, size_t epochs>
-    Tensor <float, 2> GradientDescent (const typename Base::InputType input_set [set_size], const typename Base::OutputType expected_set [set_size])
+    template <size_t set_size, size_t epochs, size_t batch_size, Algorithm algorithm>
+    Tensor <float, 2> GradientDescent (typename Base::InputType input_set [set_size], typename Base::OutputType expected_set [set_size])
     {
-        const size_t dimensions [2] = { epochs, set_size };
+        size_t partition = set_size / batch_size;
+
+        const size_t dimensions [2] = { epochs, partition };
         Tensor <float, 2> costs (dimensions);
 
         uint indices [set_size];
@@ -1419,55 +1705,44 @@ public:
             indices [i] = i;
         };
 
-        uint progress = 0;
+        ProgressBar progress (epochs * partition);
         
         for (uint i = 0; i < epochs; i++)
         {
             std::shuffle (indices, indices + set_size, std::mt19937 (SEED));
             
-            for (uint j = 0; j < set_size; j++)
+            for (uint j = 0; j < partition; j++)
             {
-                learning_rate.Update (j + i * set_size);
+                learning_rate.Update (i * partition + j);
                 
-                uint index = indices [j];
+                uint index = indices [j * batch_size];
                 
                 const typename Base::OutputType& output = Propagate (input_set [index]);
                 
                 costs [i][j] = Cost (output, expected_set [index]);
                 
-                BackPropagate (input_set [index], output, expected_set [index]);
-                UpdateParameters ();
-                
-                progress = (j + i * set_size) * 100 / (epochs * set_size);
-                if (((progress * 10) % 10) == 0)
+                ResetGradients ();
+
+                if (algorithm == StochasticNesterov || algorithm == RMSPropNesterov)
                 {
-                    std::cout << '\r' << "progress: ";
-                    for (uint k = 0; k < progress/2; k++)
-                    {
-                        std::cout << '#';
-                    };
+                    UpdateParameters (NesterovInterim);
+                };
 
-                    for (uint k = 0; k < 50 - progress/2; k++)
-                    {
-                        std::cout << ' ';
-                    };
+                for (uint k = 0; k < batch_size; k++)
+                {
+                    index = indices [j * batch_size + k];
+                    BackPropagate (input_set [index], output, expected_set [index], (float)1/batch_size);
+                };
 
-                    std::cout << progress << '%';
-                    std::cout << std::flush;
-                }; 
+                UpdateParameters (algorithm);
+ 
+                progress (j + i * set_size);
             }; 
         };
-        std::cout << std::flush << "\r\e[K" << "Training Complete!" << std::endl;
 
         // Returned by copy elision 
         return costs; 
     };
 
-    //TODO: implement other gradient descent algorithms
-    Tensor <float, 2> GD_Basic () {};
-    Tensor <float, 2> GD_Stochastic () {};
-    Tensor <float, 2> GD_StochasticMomentum () {}; 
-    Tensor <float, 2> StochasticNesterov () {};
-    Tensor <float, 2> GD_RMSProp () {};
-    Tensor <float, 2> GD_RMSPropNesterov () {};
+    //TODO: implement other gradient descent algorithms    
 };

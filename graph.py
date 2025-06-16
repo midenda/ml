@@ -52,7 +52,7 @@ figure, axis = plt.subplots (1, 1, gridspec_kw = {
                 }, figsize = (plot_size, plot_size * plot_ratio), num = 1)
 
 for i in range (1, len (series)):
-    plt.scatter (series [0], series [i], s = 10, label = "Loss", marker = "+", color = colours [i - 1], linewidth = 0.5)
+    plt.scatter (series [0], series [i], s = 10, label = f"Series {i}", marker = "+", color = colours [i - 1], linewidth = 0.5)
 # plt.yticks (yticks, [str (tick) for tick in yticks])
 
 if args.fit:
@@ -60,6 +60,7 @@ if args.fit:
 
 # if (max (y) / min (y)) > 500:
 # plt.yscale ("log")
+plt.legend ()
 
 axis.set_ylabel ("$ Loss $", fontsize = 11)
 axis.set_xlabel ("$ Iterations $", fontsize = 11)

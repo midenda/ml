@@ -28,20 +28,18 @@ void test_network ()
     ActivationFunction functions [N] = {sig, sig, sig, sig};
     LearningRate rate (0.1, 1000);
     float regularisation = 1e-5; 
-
-    Network <Layers <FeedForwardLayer, N>> network (rate, regularisation, dimensions, functions);
-
+    float momentum = 0.9; 
+    float rms_decay_rate = 0.1; 
+    
     // Network <Layers <FeedForwardLayer, N>, Layers <FeedForwardLayer, N>> networks;
-    float input [3] = {0.5, 0.5, 0.5}; 
-    const Tensor <float, 1> input_tensor (3, input);
-
     // std::cout << std::endl;
     {
+        float input [3] = {0.5, 0.5, 0.5}; 
+        const Tensor <float, 1> input_tensor (3, input);
         FeedForwardLayer layer (3, 2, ActivationFunction (Identity, Identity));
         (layer.*reference <Tensor <float, 1>, Tensor <float, 1>>) (input_tensor);
 
         std::mem_fn (&BaseLayer <Tensor <float, 1>, Tensor <float, 1>>::SetActivations);
-
     };
     //? layers [i].SetActivations (layers [i - 1].activations);
 
@@ -49,12 +47,11 @@ void test_network ()
     {
         Layers <FeedForwardLayer, 5> { 4, 5, ActivationFunction (Identity, Identity) };
     };
-
     // std::cout << std::endl;
     {
         Network <FeedForwardLayer, FeedForwardLayer, FeedForwardLayer> networks1 
         { 
-            rate, regularisation,
+            rate, regularisation, momentum, rms_decay_rate, Identity,
             {
                 3, 2, ActivationFunction (Identity, Identity)
             }, 
@@ -66,19 +63,22 @@ void test_network ()
             } 
         };
     };
-    
     // std::cout << std::endl;
     {
         Network <FeedForwardLayer, FeedForwardLayer, FeedForwardLayer> networks2 
         { 
-            rate, regularisation, (size_t)3, (size_t)2, ActivationFunction (Identity, Identity)
+            rate, regularisation, momentum, rms_decay_rate, Identity, (size_t)3, (size_t)2, ActivationFunction (Identity, Identity)
         };
     };
     
+
+    Network <Layers <FeedForwardLayer, N>> network (rate, regularisation, momentum, rms_decay_rate, Identity, dimensions, functions);
+    
     // Create Fake Test Data
-    constexpr size_t size = 100;
-    // constexpr size_t batch_size = 10;
+    constexpr size_t size = 1000;
     constexpr size_t epochs = 100;
+    constexpr size_t batch_size = 1;
+    // constexpr Algorithm algorithm = Basic;
     
     Tensor <float, 1> train_input [size];
     Tensor <float, 1> train_expected [size];
@@ -102,14 +102,18 @@ void test_network ()
         };
     };
     
-    Tensor <float, 2> costs          = network .GradientDescent <size, epochs> (train_input, train_expected);
-    
-    // float* costs = network.GD_Basic              (input, expected, size);
-    // float* costs = network.GD_Stochastic         (input, expected, size, batch_size);
-    // float* costs = network.GD_StochasticMomentum (input, expected, size, batch_size);
-    // float* costs = network.GD_StochasticNesterov (input, expected, size, batch_size);
-    // float* costs = network.GD_RMSProp            (input, expected, size, batch_size);
-    // float* costs = network.GD_RMSPropNesterov    (input, expected, size, batch_size);
+    // Tensor <float, 2> costs = network.GradientDescent <size, epochs, batch_size, algorithm> (train_input, train_expected);
+    Tensor <float, 2> costs_basic = network.GradientDescent <size, epochs, batch_size, Basic>              (train_input, train_expected);
+    network.Reset ();
+    Tensor <float, 2> costs_stoch = network.GradientDescent <size, epochs, batch_size, Stochastic>         (train_input, train_expected);
+    network.Reset ();
+    Tensor <float, 2> costs_stmom = network.GradientDescent <size, epochs, batch_size, StochasticMomentum> (train_input, train_expected);
+    network.Reset ();
+    Tensor <float, 2> costs_stnes = network.GradientDescent <size, epochs, batch_size, StochasticNesterov> (train_input, train_expected);
+    network.Reset ();
+    Tensor <float, 2> costs_rmspr = network.GradientDescent <size, epochs, batch_size, RMSProp>            (train_input, train_expected);
+    network.Reset ();
+    Tensor <float, 2> costs_rmspn = network.GradientDescent <size, epochs, batch_size, RMSPropNesterov>    (train_input, train_expected);
     
     // Process Results
     std::ofstream out;
@@ -123,10 +127,40 @@ void test_network ()
     {
         out << i - start << ",";
     };
+    // out << "\n";
+    // for (int i = start; i < num_costs; i++) 
+    // {
+    //     out << costs.elements [i] << ",";
+    // };
     out << "\n";
     for (int i = start; i < num_costs; i++) 
     {
-        out << costs.elements [i] << ",";
+        out << costs_basic.elements [i] << ",";
+    };
+    out << "\n";
+    for (int i = start; i < num_costs; i++) 
+    {
+        out << costs_stoch.elements [i] << ",";
+    };
+    out << "\n";
+    for (int i = start; i < num_costs; i++) 
+    {
+        out << costs_stmom.elements [i] << ",";
+    };
+    out << "\n";
+    for (int i = start; i < num_costs; i++) 
+    {
+        out << costs_stnes.elements [i] << ",";
+    };
+    out << "\n";
+    for (int i = start; i < num_costs; i++) 
+    {
+        out << costs_rmspr.elements [i] << ",";
+    };
+    out << "\n";
+    for (int i = start; i < num_costs; i++) 
+    {
+        out << costs_rmspn.elements [i] << ",";
     };
     out.close ();
 
