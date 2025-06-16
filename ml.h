@@ -734,8 +734,8 @@ struct LearningRate
         rate = (1.0 - 0.99 * alpha) * base_rate;
     };
 
-    void Update () {}; //TODO: store i internally ?
-    void Reset () {};  //TODO: reset to base
+    void Update () {}; //? store i internally ?
+    void Reset () {};  //? reset to base
 
     operator float () const
     {
@@ -1599,7 +1599,6 @@ private:
 
 // Private data members
 private:
-    //TODO: refactor learning rate 
     LearningRate learning_rate; // { 0.1, 1000 };
     float regularisation_factor; // = (float)1e-5;
     float momentum; // 0.9
@@ -1633,7 +1632,6 @@ public:
     {
         Base::OutputType gradient (expected.dimensions);
 
-        //TODO: improve readability of Tuple <Layers...>::template Get <> ()
         Get <N - 1> ().LossGradient (output, expected, gradient);
 
         return Tuple <Layers...>::BackPropagate (&Base::SetGradients, input, gradient, regularisation_factor, mean_batch);  
@@ -1743,6 +1741,4 @@ public:
         // Returned by copy elision 
         return costs; 
     };
-
-    //TODO: implement other gradient descent algorithms    
 };
