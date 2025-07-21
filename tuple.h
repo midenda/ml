@@ -84,7 +84,8 @@ private:
             template <uint I = 0>
             using Type = GetType <I, Ts...>::type; 
 
-            Tuple () {};
+            Tuple () 
+                : TupleLeaf <integers, Ts> {}... {};
             
             Tuple (Ts&&... args) 
                 : TupleLeaf <integers, Ts> { static_cast <Ts&&> (args) }... {}; //? can this be done with copy elision instead of move semantics?
@@ -92,6 +93,17 @@ private:
             template <typename... Args>
             Tuple (Args... args)
                 : TupleLeaf <integers, Ts> { args... }... {};
+
+            template <typename... Args>
+            void Init (Args... args)
+            {
+                (static_cast <TupleLeaf <integers, Ts>*> (this) -> value (args...), ...);
+            };
+
+            void Init (Ts&&... args)
+            {
+                (static_cast <TupleLeaf <integers, Ts>*> (this) -> value (static_cast <Ts&&> (args)), ...);
+            };
 
             Tuple (const Tuple& t) = delete;
             Tuple (Tuple&& t)      = delete;
@@ -119,15 +131,16 @@ private:
                 return static_cast <InputType&&> (input);
             };
             
-            template <uint I = N, typename OutputType, class Class, typename InputType, typename... Parameters, typename... Args>
-            typename SFINAE <0 < I, OutputType>::type BackPropagate (OutputType (Class::* F) (InputType, Parameters...), InputType&& input, Args&&... args)
+            template <uint I = N - 1, typename OutputType, class Class, typename InputType, typename... Parameters, typename... Args>
+            typename SFINAE <0 < I, OutputType>::type BackPropagate (OutputType (Class::* F) (InputType, Parameters...), InputType (Class::* map) (), InputType&& input, Args&&... args)
             {
-                return BackPropagate <I - 1> (F, (Get <I - 1> ().*F)(static_cast <InputType&&> (input), static_cast <Args&&> (args)...), static_cast <Args&&> (args)...);
+                (Get <I> ().*F)(Get <I - 1> ().*map, static_cast <Args&&> (args)...);
+                return BackPropagate <I - 1> (F, map, static_cast <InputType&&> (input), static_cast <Args&&> (args)...);
             };
-            template <uint I, typename OutputType, class Class, typename InputType, typename... Parameters, typename... Args>
-            typename SFINAE <I == 0, OutputType>::type BackPropagate (OutputType (Class::*) (InputType, Parameters...), InputType&& input, Args&&... args) 
+            template <uint I = 0, typename OutputType, class Class, typename InputType, typename... Parameters, typename... Args>
+            typename SFINAE <I == 0, OutputType>::type BackPropagate (OutputType (Class::* F) (InputType, Parameters...), InputType (Class::*) (), InputType&& input, Args&&... args) 
             {
-                return static_cast <InputType&&> (input);
+                return (Get <0> ().*F) (static_cast <InputType&&> (input), static_cast <Args&&> (args)...);
             };
 
             //TODO: only works if all elements are same type, can't pass templates
@@ -148,7 +161,7 @@ private:
             // {
             //     Functor :: template call <Type <0>> (Get <0> (), args...);
             //     Call <1, Functor, Args...> (args...); 
-            // };ß
+            // };
             // template <uint I = 0, typename Functor, typename... Args> requires Callable <Functor, Type <I>> //? default argument I = 0 doesn't allow Call <Functor> ()
             // typename SFINAE <I < N>::type Call (Args... args)
             // {
