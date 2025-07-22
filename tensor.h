@@ -231,9 +231,30 @@ void MatrixMultiply (const Tensor <T, 2>& V, const Tensor <T, 2>& W, Tensor <T, 
     };
 };
 
+//TODO: Compile time tensor dimensions could allow for stack memory allocation: Tensor <T, dimension1, dimension2, dimension3, ...>
+// template <typename T, size_t N, size_t M, size_t... Dimensions>
+// struct Tensor
+// {
+//     constexpr size_t length = M * (Dimensions * ...);
+//     uint layer;
+//     // T* elements = new T [length];
+//     T elements [length];
+//     size_t size = sizeof (*this); //? does this work?
+
+//     Tensor <T, N - 1, Dimensions...> children [M];
+
+// };
+
+//TODO: create contiguous block of memory for related tensors
+// void BatchAllocate ()
+// {
+
+// };
+
 template <typename T, size_t N>
 struct Tensor
 {
+    //TODO: reorder members to reduce alignment padding
     size_t dimensions [N];
     size_t length = 0;
     uint layer = 0;
@@ -254,6 +275,24 @@ struct Tensor
     Tensor (const size_t input_dimensions [N], const T e [])
     {
         Init (input_dimensions, e);
+    };
+
+    Tensor (std::initializer_list <size_t> input_dimensions, const T e [])
+    {
+        if (!(input_dimensions.size () == N)) 
+        {
+            throw (std::invalid_argument ("Invalid length for input_dimensions (requires " + std::to_string (N) + "but received " + std::to_string (input_dimensions.size())));
+        }; //TODO: can this be put in the function signature ?
+        //! don't throw!! noexcept
+
+        size_t dim [N];
+
+        for (int i = 0; i < N; i++)
+        {
+            dim [i] = input_dimensions.begin () [i];
+        };
+
+        Init (dim, e);
     };
 
     void Init (const size_t input_dimensions [N], const T e [])
@@ -278,7 +317,6 @@ struct Tensor
             length *= d;
         };
 
-
         elements = new T [length];
         for (int i = 0; i < length; i++)
         {
@@ -300,7 +338,7 @@ struct Tensor
         }; 
         #endif
     };
-
+    
     // Child Constructor: shouldn't be called explicitly
     Tensor (const size_t input_dimensions [N], T* e, const uint layer)
         : layer {layer}
@@ -340,6 +378,26 @@ struct Tensor
     Tensor (const size_t input_dimensions [N])
     {
         Init (input_dimensions);
+    };
+
+    Tensor (std::initializer_list <size_t> input_dimensions)
+    {
+        if (!(input_dimensions.size () == N)) 
+        {
+            // throw (std::invalid_argument ("Invalid length for input_dimensions (requires " + std::to_string (N) + "but received " + std::to_string (input_dimensions.size())));
+            std::cout << "Bad Initialisation of " << (*this) << ": invalid input dimensions" << std::endl;
+            return;
+        }; //TODO: can this be put in the function signature ?
+        //! don't throw!! noexcept
+
+        size_t dim [N];
+
+        for (uint i = 0; i < N; i++)
+        {
+            dim [i] = input_dimensions.begin () [i];
+        };
+
+        Init (dim);
     };
 
     void Init (const size_t input_dimensions [N])
@@ -442,7 +500,62 @@ struct Tensor
 
         name = t.name;
         t.name = nullptr;
+        
+        #endif
+    };
 
+    void Swap (Tensor& other)
+    {
+        // std::cout << "Moved Tensor" << std::endl;
+        
+        for (uint i = 0; i < N; i++)
+        {
+            size_t temporary;
+            temporary = dimensions [i];
+            dimensions [i] = other.dimensions [i];
+            other.dimensions [i] = temporary;
+        };
+    
+        {
+            T* temporary;
+            temporary = elements;
+            elements = other.elements;
+            other.elements = temporary;
+        };
+        {
+            Tensor <T, N - 1>** temporary;
+            temporary = children;
+            children = other.children;
+            other.children = temporary;
+        };
+        {
+            uint temporary;
+            temporary = layer;
+            layer = other.layer;
+            other.layer = temporary;
+        };
+        {
+            size_t temporary;
+            temporary = length;
+            length = other.length;
+            other.length = temporary;
+        };
+        
+        #if DEBUG_LEVEL == 1
+        
+        {
+            size_t temporary;
+            temporary = size;
+            size = other.size;
+            other.size = temporary;
+        };
+        {
+            const char* temporary;
+            temporary = name;
+            name = other.name;
+            other.name = temporary;
+        };
+        
         #endif
     };
 
@@ -862,6 +975,53 @@ struct Tensor <T, 1>
         #endif
     };
 
+    void Swap (Tensor& other)
+    {
+        // std::cout << "Moved Tensor" << std::endl;
+
+        {
+            size_t temporary;
+            temporary = dimensions [0];
+            dimensions [0] = other.dimensions [0];
+            other.dimensions [0] = temporary;
+        };
+        {
+            T* temporary;
+            temporary = elements;
+            elements = other.elements;
+            other.elements = temporary;
+        };
+        {
+            uint temporary;
+            temporary = layer;
+            layer = other.layer;
+            other.layer = temporary;
+        };
+        {
+            size_t temporary;
+            temporary = length;
+            length = other.length;
+            other.length = temporary;
+        };
+        
+        #if DEBUG_LEVEL == 1
+        
+        {
+            size_t temporary;
+            temporary = size;
+            size = other.size;
+            other.size = temporary;
+        };
+        {
+            const char* temporary;
+            temporary = name;
+            name = other.name;
+            other.name = temporary;
+        };
+        
+        #endif
+    };
+
     const T& operator[] (const uint idx) const 
     {
         return elements [idx];
@@ -1034,4 +1194,10 @@ struct Tensor <T, 1>
     };
 
     #endif
+};
+
+template <typename T, size_t N>
+void Swap (Tensor <T, N>& T1, Tensor <T, N>& T2)
+{
+    T1.Swap (T2);
 };
