@@ -5,7 +5,7 @@
 #include <fstream>
 #include <random> 
 #include <functional>
-#include <algorithm> // std::shuffle
+#include <algorithm> // std::shuffle, std::min
 
 #if DEBUG_LEVEL == 1
     #include <string>
@@ -630,7 +630,8 @@ void NegativeLogLikelyhoodGradient (const Tensor <T, N>& output, const Tensor <T
     };
 };
 
-const Tensor <float, 1>& Identity (const Tensor <float, 1>& input)
+template <typename T, size_t N>
+const Tensor <T, N>& Identity (const Tensor <T, N>& input)
 {
     return input;
 };
@@ -743,21 +744,46 @@ struct LearningRate
     };
 };
 
-template <typename Input, typename Output> //TODO: make compatible with different layer types
+//TODO: make compatible with different layer types
 struct BaseLayer 
 {
-    using InputType = Input;
-    using OutputType = Output;
-
+    using InputType = Tensor <float, 1>;
+    using OutputType = Tensor <float, 1>;
+    using BatchInputType = Tensor <float, 2>;
+    using BatchOutputType = Tensor <float, 2>;
+    
     //? does the use of virtual functions incur a runtime cost from use of vtables?
+    //? just put declarations here and put definitions in layers
+    //? use some kind of functor to allow for different function signatures?
+
+    virtual const OutputType&
+    GetActivations ()
+    = 0;
+    
     virtual const OutputType&
     SetActivations (const InputType&)
     = 0;
-    
-    virtual const OutputType&
-    SetGradients (const InputType&, OutputType&, float, float)
+
+    virtual const BatchOutputType&
+    GetBatchActivations ()
+    = 0;
+
+    virtual const BatchOutputType&
+    SetBatchActivations (const BatchInputType&)
     = 0;
     
+    virtual const OutputType&
+    SetGradients (const InputType&, OutputType&, float)
+    = 0;
+
+    virtual const BatchOutputType&
+    SetBatchGradients (const BatchInputType&, BatchOutputType&, float)
+    = 0;
+    
+    virtual void 
+    UpdateBatchSize (size_t)
+    = 0;
+
     virtual void
     ResetGradients ()
     = 0;
@@ -776,7 +802,7 @@ struct BaseLayer
     
     virtual void 
     UpdateRMSPropNesterov (LearningRate, float, float)
-     = 0;
+    = 0;
     
     virtual void
     UpdateNesterovInterim (float)
@@ -1105,11 +1131,13 @@ struct ConvolutionLayer
     #endif
 };
 
-struct FeedForwardLayer : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1>>
+struct FeedForwardLayer : virtual BaseLayer
 {
+    //? Batch allocate these so heap memory is better organised?
     Tensor <float, 2> weights;
     Tensor <float, 1> biases;
-    Tensor <float, 1> activations;
+    Tensor <float, 1> activations; 
+    Tensor <float, 2> batch_activations;
 
     //TODO: benchmark RMSP, velocities - this is a lot more data per layer
     //? pointer to store in seperate object? could dependency inject where necessary
@@ -1132,13 +1160,13 @@ struct FeedForwardLayer : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1
 
     FeedForwardLayer () {};
 
-    FeedForwardLayer (const Tensor <float, 2>& w, const Tensor <float, 1>& b, ActivationFunction act_fn)
+    FeedForwardLayer (const Tensor <float, 2>& w, const Tensor <float, 1>& b, ActivationFunction act_fn, const size_t batch_size = 32)
     {
-        Init (w, b, act_fn);
+        Init (w, b, act_fn, batch_size);
     };
 
     // TODO: template constructor with new Tensor API (dimension)
-    void Init (const Tensor <float, 2>& w, const Tensor <float, 1>& b, ActivationFunction act_fn)
+    void Init (const Tensor <float, 2>& w, const Tensor <float, 1>& b, ActivationFunction act_fn, const size_t batch_size)
     {
         weights           .Init (w.dimensions, w.elements);
         biases            .Init (b.length,     b.elements);
@@ -1149,20 +1177,21 @@ struct FeedForwardLayer : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1
         weight_velocities .Init (w.dimensions);
         bias_velocities   .Init (b.dimensions [0]);
         activations       .Init (w.dimensions [0]);
+        batch_activations .Init ({batch_size, w.dimensions [0]});
         activation_function = act_fn; 
     };
 
-    FeedForwardLayer (size_t M, size_t N, ActivationFunction act_fn)
+    FeedForwardLayer (size_t M, size_t N, ActivationFunction act_fn, const size_t batch_size = 32)
     {
         // std::cout << "Constructing Layer! " << std::endl;
-        Init (M, N, act_fn);
+        Init (M, N, act_fn, batch_size);
     };
     
-    void Init (size_t M, size_t N, ActivationFunction act_fn)
+    void Init (size_t M, size_t N, ActivationFunction act_fn, const size_t batch_size)
     {
         // std::cout << "Initialising Layer with M=" << M << " and N=" << N << std::endl;
 
-        size_t dimensions [2] = {M, N};
+        const size_t dimensions [2] = { M, N };
 
         weights           .Init (dimensions); 
         biases            .Init (M);
@@ -1173,6 +1202,7 @@ struct FeedForwardLayer : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1
         weight_velocities .Init (dimensions);
         bias_velocities   .Init (M);
         activations       .Init (M);
+        batch_activations .Init ({batch_size, M});
 
         weights .template Randomise <std::normal_distribution <float>> (0, 1);
         biases  .template Randomise <std::normal_distribution <float>> (0, 1);
@@ -1202,12 +1232,19 @@ struct FeedForwardLayer : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1
         weight_velocities .Init (static_cast <Tensor <float, 2>&&> (other.weight_velocities));
         bias_velocities   .Init (static_cast <Tensor <float, 1>&&> (other.bias_velocities));
         activations       .Init (static_cast <Tensor <float, 1>&&> (other.activations));
+        batch_activations .Init (static_cast <Tensor <float, 2>&&> (other.batch_activations));
         activation_function = other.activation_function; 
     };
 
     ~FeedForwardLayer () 
     {
         // std::cout << "Deleting Layer! " << std::endl;
+    };
+
+    virtual const OutputType& GetActivations ()
+    override 
+    {
+        return activations;
     };
 
     virtual const OutputType& SetActivations (const Tensor <float, 1>& input) 
@@ -1220,31 +1257,100 @@ struct FeedForwardLayer : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1
             {
                 sum += weights [i][j] * input [j];
             };
-
+            //TODO: batch normalise before activation function?
             activations [i] = activation_function.f (sum);
         };
 
         return activations;
     };
 
-    virtual const OutputType& SetGradients (const Tensor <float, 1>& previous_activations, Tensor <float, 1>& gradient, float regularisation_factor, float mean_batch = 1.0) 
+    virtual const BatchOutputType& GetBatchActivations ()
+    override
+    {
+        return batch_activations;
+    };
+
+    virtual const BatchOutputType& SetBatchActivations (const Tensor <float, 2>& input)
+    override 
+    {
+        for (uint i = 0; i < input.dimensions [0]; i++)
+        {
+            for (uint j = 0; j < activations.length; j++)
+            {
+                float sum = 0.0;
+                for (uint k = 0; k < weights.dimensions [1]; k++)
+                {
+                    sum += weights [j][k] * input [i][k];
+                };
+                //TODO: batch normalise before activation function?
+                //? apply activation function to following batch norm layer instead of here
+                batch_activations [i][j] = activation_function.f (sum);
+            };
+        };
+
+        return batch_activations;
+    };
+
+    virtual const BatchOutputType& SetBatchGradients (const Tensor <float, 2>& previous_activations, Tensor <float, 2>& gradient, float regularisation_factor) 
+    override
+    {
+        const size_t batch_size = previous_activations.dimensions [0];
+        //? calculate activations in backpropagate step ???
+        //? uses computation instead of memory
+
+        for (uint i = 0; i < batch_size; i++)
+        {
+            for (uint j = 0; j < gradient.dimensions [1]; j++)
+            {
+                gradient [i][j] *= activation_function.gradient (batch_activations [i][j]);
+
+                // bias_gradients [j] += gradient [j] + 2 * regularisation_factor * biases [j]; 
+                bias_gradients [j] += gradient [i][j]; 
+                
+                for (uint k = 0; k < weights.dimensions [1]; k++)
+                {
+                    //? divide by batch size?
+                    weight_gradients [j][k] += gradient [i][j] * previous_activations [i][k] + 2 * regularisation_factor * weights [j][k];
+                };
+            };
+        };
+
+        Tensor <float, 2> new_gradient (previous_activations.dimensions);
+
+        for (uint i = 0; i < batch_size; i++)
+        {
+            for (uint j = 0; j < previous_activations.dimensions [1]; j++)
+            {
+                new_gradient [i][j] = 0.0;
+                for (uint k = 0; k < gradient.dimensions [1]; k++)
+                {
+                    new_gradient [i][j] += gradient [i][k] * weights [k][j]; 
+                };
+            };
+        };
+
+        gradient.Swap (new_gradient);
+
+        return batch_activations;
+    };
+
+    virtual const OutputType& SetGradients (const Tensor <float, 1>& previous_activations, Tensor <float, 1>& gradient, float regularisation_factor) 
     override
     {
         for (uint i = 0; i < gradient.length; i++)
         {
             gradient [i] *= activation_function.gradient (activations [i]);
 
-            // bias_gradients [i] += mean_batch * (gradient [i] + 2 * regularisation_factor * biases [i]); 
-            bias_gradients [i] += mean_batch * gradient [i]; 
+            // bias_gradients [i] += gradient [i] + 2 * regularisation_factor * biases [i]; 
+            bias_gradients [i] += gradient [i]; 
             
             for (uint j = 0; j < weights.dimensions [1]; j++)
             {
-                weight_gradients [i][j] += mean_batch * (gradient [i] * previous_activations [j] + 2 * regularisation_factor * weights [i][j]);
+                weight_gradients [i][j] += gradient [i] * previous_activations [j] + 2 * regularisation_factor * weights [i][j];
             };
-
         };
 
-        float new_gradient [previous_activations.length];
+        Tensor <float, 1> new_gradient (previous_activations.length);
 
         for (uint i = 0; i < previous_activations.length; i++)
         {
@@ -1255,10 +1361,18 @@ struct FeedForwardLayer : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1
             };
         };
 
-        // TODO: avoid using Reshape ?
-        gradient.Reshape (previous_activations.length, new_gradient);
+        gradient.Swap (new_gradient);
 
         return activations;
+    };
+
+    virtual void UpdateBatchSize (size_t batch_size)
+    override 
+    {
+        //? batch allocate all layers together?
+        //? batch size only decreases... could just not bother?
+        Tensor <float, 2> new_batch_activations ({ batch_size, activations.length });
+        batch_activations.Swap (new_batch_activations);
     };
 
     virtual void ResetGradients () 
@@ -1382,12 +1496,14 @@ struct FeedForwardLayer : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1
 };
 
 template <typename Layer, size_t N>
-struct Layers : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1>> //? requires std::is_base_of <BaseLayer, Layer>::value ?
+struct Layers : virtual BaseLayer //? requires std::is_base_of <BaseLayer, Layer>::value ?
 {
     using LossFunctionType = float (*) (const OutputType&, const OutputType&);
     using LossGradientType = void  (*) (const OutputType&, const OutputType&, OutputType&);
 
     Layer layers [N];
+
+    //TODO: why are these here? either put in layer or network
     LossFunctionType LossFunction;
     LossGradientType LossGradient;
 
@@ -1409,11 +1525,12 @@ struct Layers : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1>> //? req
         size_t dimensions [N + 1], 
         ActivationFunction functions [N], 
         LossFunctionType f = MeanSquaredError <float, 1>,
-        LossGradientType df = MeanSquaredErrorGradient <float, 1>
+        LossGradientType df = MeanSquaredErrorGradient <float, 1>,
+        size_t batch_size = 32
     )
         : LossFunction (f), LossGradient (df)
     {
-        Init (dimensions, functions);
+        Init (dimensions, functions, batch_size);
     };
 
     void Init 
@@ -1421,49 +1538,88 @@ struct Layers : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1>> //? req
         size_t dimensions [N + 1], 
         ActivationFunction functions [N], 
         LossFunctionType f,
-        LossGradientType df
+        LossGradientType df,
+        size_t batch_size
     )
     {
         LossFunction (f);
         LossGradient (df);
-        Init (dimensions, functions);
+        Init (dimensions, functions, batch_size);
     };
 
     void Init 
     (
         size_t dimensions [N + 1], 
-        ActivationFunction functions [N]
+        ActivationFunction functions [N],
+        size_t batch_size
     )
     {
         for (uint i = 0; i < N; i++)
         {
-            layers [i].Init (dimensions [i + 1], dimensions [i], functions [i]);
+            layers [i].Init (dimensions [i + 1], dimensions [i], functions [i], batch_size);
         };
     };
-
+    
+    virtual const OutputType& GetActivations () 
+    override
+    {
+        return layers [N - 1].activations;
+    };
+    
     virtual const OutputType& SetActivations (const InputType& input) 
     override
     {
         layers [0].SetActivations (input);
-
+        
         for (uint i = 1; i < N; i++)
         {
             layers [i].SetActivations (layers [i - 1].activations);
         };
-
+        
         return layers [N - 1].activations;
     };
 
-    virtual const OutputType& SetGradients (const InputType& input, Tensor <float, 1>& gradient, float regularisation_factor, float mean_batch = 1.0) 
+    virtual const BatchOutputType& GetBatchActivations () 
+    override
+    {
+        return layers [N - 1].batch_activations;
+    };
+
+    virtual const BatchOutputType& SetBatchActivations (const BatchInputType& input) 
+    override
+    {
+        layers [0].SetBatchActivations (input);
+        
+        for (uint i = 1; i < N; i++)
+        {
+            layers [i].SetBatchActivations (layers [i - 1].batch_activations);
+        };
+
+        return layers [N - 1].batch_activations;
+    };
+
+    virtual const OutputType& SetGradients (const InputType& input, OutputType& gradient, float regularisation_factor) 
     override
     {
         for (uint i = N - 1; i > 0; i--)
         {
-            layers [i].SetGradients (layers [i - 1].activations, gradient, regularisation_factor, mean_batch);
+            layers [i].SetGradients (layers [i - 1].activations, gradient, regularisation_factor);
         };
-        layers [0].SetGradients (input, gradient, regularisation_factor, mean_batch);
+        layers [0].SetGradients (input, gradient, regularisation_factor);
 
         return layers [0].activations;
+    };
+
+    virtual const BatchOutputType& SetBatchGradients (const BatchInputType& input, BatchOutputType& gradient, float regularisation_factor) 
+    override
+    {
+        for (uint i = N - 1; i > 0; i--)
+        {
+            layers [i].SetBatchGradients (layers [i - 1].batch_activations, gradient, regularisation_factor);
+        };
+        layers [0].SetBatchGradients (input, gradient, regularisation_factor);
+
+        return layers [0].batch_activations;
     };
     
     virtual void UpdateParameters (LearningRate learning_rate) 
@@ -1507,6 +1663,15 @@ struct Layers : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1>> //? req
         }; 
     };
 
+    virtual void UpdateBatchSize (size_t batch_size)
+    override
+    {
+        for (uint i = 0; i < N; i++)
+        {
+            layers [i].UpdateBatchSize (batch_size);
+        };        
+    };
+
     virtual void ResetGradients () 
     override
     {
@@ -1537,15 +1702,58 @@ struct Layers : virtual BaseLayer <Tensor <float, 1>, Tensor <float, 1>> //? req
     };
 };
 
+enum Algorithm 
+{
+    Basic,
+    Stochastic,
+    StochasticMomentum,
+    StochasticNesterov,
+    RMSProp,
+    RMSPropNesterov,
+    NesterovInterim
+    //TODO: Adam
+};
+
+std::ostream& operator<< (std::ostream& os, Algorithm algorithm)
+{
+    switch (algorithm)
+    {
+    case Basic:
+        os << "Basic";
+        break;
+    case Stochastic:
+        os << "Stochastic";
+        break;
+    case StochasticMomentum:
+        os << "StochasticMomentum";
+        break;
+    case StochasticNesterov:
+        os << "StochasticNesterov";
+        break;
+    case RMSProp:
+        os << "RMSProp";
+        break;
+    case RMSPropNesterov:
+        os << "RMSPropNesterov";
+        break;
+    case NesterovInterim:
+        os << "NesterovInterim";
+        break;
+    };
+    
+    return os;
+};
+
 struct ProgressBar
 {
-    size_t total;        
+    size_t total; 
+    Algorithm algorithm;
 
-    ProgressBar (size_t total, uint i = 0) : total { total } {};
+    ProgressBar (size_t total, Algorithm algorithm = Basic, uint i = 0) : total { total }, algorithm { algorithm } {};
 
     ~ProgressBar ()
     {
-        std::cout << std::flush << "\r\e[K" << "Training Complete!" << std::endl;
+        std::cout << std::flush << "\r\e[K" << "Training Complete! (" << algorithm << ") " << std::endl;
     };
 
     void operator()(uint i) 
@@ -1571,26 +1779,14 @@ struct ProgressBar
     };
 };
 
-enum Algorithm 
-{
-    Basic,
-    Stochastic,
-    StochasticMomentum,
-    StochasticNesterov,
-    RMSProp,
-    RMSPropNesterov,
-    NesterovInterim
-    //TODO: Adam
-};
-
-template <typename... Layers> requires (std::is_base_of_v <BaseLayer <Tensor <float, 1>, Tensor <float, 1>>, Layers> && ...)
+template <typename... Layers> requires (std::is_base_of_v <BaseLayer, Layers> && ...)
 class Network : private Tuple <Layers...>
 {
 // Type definitions and Tuple specialisations
 private:
-    using Base = BaseLayer <Tensor <float, 1>, Tensor <float, 1>>;
+    using Base = BaseLayer;
     static constexpr const uint N = sizeof... (Layers);
-    using OutputFunction = const Tensor <float, 1>& (*) (const Tensor <float, 1>&);
+    using OutputFunction = const Tensor <float, 2>& (*) (const Tensor <float, 2>&);
 
     template <uint I>
     Tuple <Layers...> :: template Type <I>& Get () 
@@ -1629,13 +1825,33 @@ public:
         return Tuple <Layers...>::Propagate (&Base::SetActivations, input);
     };
     
-    const typename Base::OutputType& BackPropagate (const Base::InputType& input, const Base::OutputType& output, const Base::OutputType& expected, float mean_batch) 
+    const typename Base::OutputType& BackPropagate (const Base::InputType& input, const Base::OutputType& output, const Base::OutputType& expected) 
     {
         Base::OutputType gradient (expected.dimensions);
 
         Get <N - 1> ().LossGradient (output, expected, gradient);
 
-        return Tuple <Layers...>::BackPropagate (&Base::SetGradients, input, gradient, regularisation_factor, mean_batch);  
+        return Tuple <Layers...>::BackPropagate (&Base::SetGradients, &Base::GetActivations, input, gradient, regularisation_factor);  
+    };
+
+    const typename Base::BatchOutputType& BatchPropagate (const typename Base::BatchInputType& input)
+    {
+        return Tuple <Layers...>::Propagate (&Base::SetBatchActivations, input);
+    };  
+
+    template <size_t batch_size>
+    const typename Base::BatchOutputType& BatchBackPropagate (const Tensor <float, 2>& input, const Tensor <float, 2>& expected)
+    {
+        Tuple <Layers...>::ForEach (&Base::UpdateBatchSize, batch_size);
+        
+        const Base::BatchOutputType& output = BatchPropagate (input);
+        Base::BatchOutputType gradient (expected.dimensions);
+
+        for (uint i = 0; i < batch_size; i++)
+        {
+            Get <N - 1> ().LossGradient (output [i], expected [i], gradient [i]);
+        };
+        return Tuple <Layers...>::BackPropagate (&Base::SetBatchGradients, &Base::GetBatchActivations, input, gradient, regularisation_factor);
     };
 
     void ResetGradients ()
@@ -1691,47 +1907,69 @@ public:
 
     //? might have some difficulties using templates if data read from file
     template <size_t set_size, size_t epochs, size_t batch_size, Algorithm algorithm>
-    Tensor <float, 2> GradientDescent (typename Base::InputType input_set [set_size], typename Base::OutputType expected_set [set_size])
+    Tensor <float, 2> GradientDescent (Tensor <float, 1> input_set [set_size], Tensor <float, 1> expected_set [set_size])
     {
-        size_t partition = set_size / batch_size;
+        size_t batches = set_size / batch_size;
 
-        const size_t dimensions [2] = { epochs, partition };
+        const size_t dimensions [2] = { epochs, batches };
         Tensor <float, 2> costs (dimensions);
 
+        Tensor <float, 2> shuffled_input_set [batches]; //? benchmark - trading memory for compute
+        Tensor <float, 2> shuffled_expected_set [batches];
+
+        for (uint i = 0; i < batches; i++)
+        {
+            //TODO: modify to be robust to inputs of different dimensions
+            shuffled_input_set    [i].Init ({batch_size, input_set    [0].length});
+            shuffled_expected_set [i].Init ({batch_size, expected_set [0].length});
+        };
+        
         uint indices [set_size];
         for (uint i = 0; i < set_size; i++)
         {
             indices [i] = i;
         };
-
-        ProgressBar progress (epochs * partition);
+        
+        ProgressBar progress (epochs * batches, algorithm);
+        
         
         for (uint i = 0; i < epochs; i++)
         {
             std::shuffle (indices, indices + set_size, std::mt19937 (SEED));
             
-            for (uint j = 0; j < partition; j++)
+            for (uint j = 0; j < batches; j++)
             {
-                learning_rate.Update (i * partition + j);
+                for (uint k = 0; k < batch_size; k++)
+                {
+                    shuffled_input_set    [j][k].SetElements (input_set    [indices [j * batch_size + k]]);
+                    shuffled_expected_set [j][k].SetElements (expected_set [indices [j * batch_size + k]]);
+                };
+            };  
+            
+            // Prepare input batches
+            for (uint j = 0; j < batches; j++)
+            {
+                learning_rate.Update (i * batches + j);
                 
-                uint index = indices [j * batch_size];
-                
-                const typename Base::OutputType& output = Propagate (input_set [index]);
-                
-                costs [i][j] = Cost (output, expected_set [index]);
+                // uint index = indices [j * batch_size];
                 
                 ResetGradients ();
-
+                
                 if (algorithm == StochasticNesterov || algorithm == RMSPropNesterov)
                 {
                     UpdateParameters (NesterovInterim);
                 };
-
-                for (uint k = 0; k < batch_size; k++)
-                {
-                    index = indices [j * batch_size + k];
-                    BackPropagate (input_set [index], output, expected_set [index], (float)1/batch_size);
-                };
+                
+                const typename Base::OutputType& output = Propagate (shuffled_input_set [j][0]); //TODO: calculate costs differently
+                costs [i][j] = Cost (output, shuffled_expected_set [j][0]);
+                
+                //TODO:
+                BatchBackPropagate <batch_size> (shuffled_input_set [j], shuffled_expected_set [j]);
+                // for (uint k = 0; k < batch_size; k++)
+                // {
+                //     index = indices [j * batch_size + k];
+                //     BackPropagate (input_set [index], output, expected_set [index], (float)1/batch_size);
+                // };
 
                 UpdateParameters (algorithm);
  
@@ -1743,3 +1981,6 @@ public:
         return costs; 
     };
 };
+
+//TODO: clever template wizardry to make combinations of alternating layers eg [10(FF, BN), 20(CNV, FF, BN, FF, BN), 20 (FF, BN)]
+//? Network <Layers <MixedLayers <FF, BN>, 10>, Layers <MixedLayers <CNV, FF, BN, FF, BN>, 20>, Layers <MixedLayers <FF, BN>, 20>>

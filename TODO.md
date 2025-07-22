@@ -35,6 +35,7 @@
 ### Implement
  -  Batch Normalisation
  -  Support Vector Machine 
+ -  Activation checkpointing
  -  Memory allocation tracker
  -  Data preprocessing pipeline
  -  Network Visualisation module
