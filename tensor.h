@@ -773,7 +773,7 @@ struct Tensor
         #endif
     };
 
-    const Tensor <T, N> Copy () const
+    Tensor <T, N> Copy () const
     {
         return Tensor (dimensions, elements);
     };
@@ -1020,6 +1020,11 @@ struct Tensor <T, 1>
         };
         
         #endif
+    };
+
+    Tensor <T, 1> Copy () const
+    {
+        return Tensor (dimensions, elements);
     };
 
     const T& operator[] (const uint idx) const 
