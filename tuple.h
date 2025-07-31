@@ -2,6 +2,8 @@
 
 #if DEBUG_LEVEL == 1
     #define FUNC_SIG std::cout << __PRETTY_FUNCTION__ << std::endl;
+
+    #include <string>
 #endif
 
 //TODO: mark constexpr functions as constexpr
@@ -30,8 +32,16 @@ struct TupleLeaf
     TupleLeaf (Args... args) 
         : value { args... } {};
 
-
     //? Init ?
+
+    #if DEBUG_LEVEL == 1
+
+    void Print (std::ostream& os)
+    {
+        os << value << std::endl;
+    };
+
+    #endif
 };
 
 // empty tuple element
@@ -90,6 +100,11 @@ private:
             Tuple (Ts&&... args) 
                 : TupleLeaf <integers, Ts> { static_cast <Ts&&> (args) }... {}; //? can this be done with copy elision instead of move semantics?
 
+            //! using the Tuple (Ts&&... args) constructor with an incorrect number of arguments instead calls this constructor
+            //? this constructor requires all elements to accept the same arguments as inputs
+            //? possibly impose some kind of type checking concept
+            //? eg requires (std::is_base_of_v <BaseType, Ts> && ...)
+            //? only allow this constructor for TypedTuple ?
             template <typename... Args>
             Tuple (Args... args)
                 : TupleLeaf <integers, Ts> { args... }... {};
@@ -97,12 +112,12 @@ private:
             template <typename... Args>
             void Init (Args... args)
             {
-                (static_cast <TupleLeaf <integers, Ts>*> (this) -> value (args...), ...);
+                (static_cast <TupleLeaf <integers, Ts>*> (this) -> value.Init (args...), ...);
             };
 
             void Init (Ts&&... args)
             {
-                (static_cast <TupleLeaf <integers, Ts>*> (this) -> value (static_cast <Ts&&> (args)), ...);
+                (static_cast <TupleLeaf <integers, Ts>*> (this) -> value.Init (static_cast <Ts&&> (args)), ...);
             };
 
             Tuple (const Tuple& t) = delete;
@@ -134,14 +149,27 @@ private:
             template <uint I = N - 1, typename OutputType, class Class, typename InputType, typename... Parameters, typename... Args>
             typename SFINAE <0 < I, OutputType>::type BackPropagate (OutputType (Class::* F) (InputType, Parameters...), InputType (Class::* map) (), InputType&& input, Args&&... args)
             {
-                (Get <I> ().*F)(Get <I - 1> ().*map, static_cast <Args&&> (args)...);
+                (Get <I> ().*F)((Get <I - 1> ().*map) (), static_cast <Args&&> (args)...);
                 return BackPropagate <I - 1> (F, map, static_cast <InputType&&> (input), static_cast <Args&&> (args)...);
             };
-            template <uint I = 0, typename OutputType, class Class, typename InputType, typename... Parameters, typename... Args>
+            template <uint I = N - 1, typename OutputType, class Class, typename InputType, typename... Parameters, typename... Args>
             typename SFINAE <I == 0, OutputType>::type BackPropagate (OutputType (Class::* F) (InputType, Parameters...), InputType (Class::*) (), InputType&& input, Args&&... args) 
             {
                 return (Get <0> ().*F) (static_cast <InputType&&> (input), static_cast <Args&&> (args)...);
             };
+
+            #if DEBUG_LEVEL == 1
+
+            template <uint I = 0>
+            typename SFINAE <I < N, void>::type Print (std::ostream& os = std::cout)
+            {
+                static_cast <TupleLeaf <I, Type <I>>*> (this) -> Print (os);
+                Print <I + 1> (os);
+            };
+            template <uint I>
+            typename SFINAE <I == N, void>::type Print (std::ostream& = std::cout) {};
+
+            #endif
 
             //TODO: only works if all elements are same type, can't pass templates
             //? use functor (see Call() below, can't template operator() so messy syntax) or ...?
@@ -191,18 +219,11 @@ public:
 template <typename... Ts>
 struct Tuple : MakeTuple <Ts...>::Tuple 
 {
-    // Tuple (Ts... args) 
-    //     : MakeTuple <Ts...>::Tuple (args...) {};
-    
-    Tuple (Ts&&... args) 
-        : MakeTuple <Ts...>::Tuple (static_cast <Ts&&> (args)...) {};
-
-    template <typename... Args>
-    Tuple (Args... args) 
-        : MakeTuple <Ts...>::Tuple (args...) {};
+    // Inherit constructors
+    using MakeTuple <Ts...>::Tuple::Tuple;
 }; 
 
-// empty base optimisation
+// Empty Base Optimisation
 template <>
 struct Tuple <> {};
 
