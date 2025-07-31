@@ -27,9 +27,16 @@ void test_tuple ()
     std::cout << T.Get <2> () << std::endl;
     std::cout << T.Get <3> () << std::endl;
 
+    RepeatTuple <1, int, bool, double, const char*> repeat  { 4, true, 3.4, "repeats once!" };
+    RepeatTuple <4, int, bool, double, const char*> repeat4 { 2, false, 2.8, "repeats 4 times!" };
+
+
     // T.Call <PrintTuple> ();
     // other.Call <PrintTuple> ();
     // third.Call <PrintTuple> ();
+
+    repeat.Print ();
+    repeat4.Print ();
 
     // auto [a, b, c] = T; //TODO: implement std::tuple_size for structured binding assignment
 

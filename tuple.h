@@ -216,6 +216,58 @@ public:
     using Tuple = Range <sizeof... (Ts) - 1> :: Tuple;
 };
 
+template <size_t N, typename... Ts>
+struct MakeRepeatTuple
+{
+private:
+    template <uint I, typename... All>
+    struct Sum 
+    {
+        struct Tuple : Sum <I - 1, All..., Ts...>::Tuple
+        {
+            // Inherit constructors
+            using Sum <I - 1, All..., Ts...>::Tuple::Tuple;
+
+            // Duplicate arguments to instantiate repeat elements
+            Tuple (Ts... args) requires (I - 1 > 0)
+                : Sum <I - 1, All..., Ts...>:: Tuple (args..., args..., args...) {};
+
+            Tuple (All... all, Ts... args) requires (I - 1 > 0)
+                : Sum <I - 1, All..., Ts...>:: Tuple (all..., args..., args...) {};
+
+            Tuple (All... all, Ts... args) requires (I - 1 == 0)
+                : Sum <I - 1, All..., Ts...>:: Tuple (static_cast <All&&> (all)..., static_cast <Ts&& >(args) ...) {};
+        };
+    };
+
+    template <typename... All>
+    struct Sum <0, All...>
+    {
+        using Tuple = MakeTuple <All...> :: Tuple;
+    };
+
+public:
+    using Tuple = Sum <N - 1, Ts...>::Tuple;
+};
+
+template <typename... Ts>
+struct MakeRepeatTuple <1, Ts...>
+{
+    // Inherit constructors
+    using Tuple = MakeTuple <Ts...> :: Tuple;
+};
+
+template <size_t N, typename... Ts>
+struct RepeatTuple : MakeRepeatTuple <N, Ts...> :: Tuple
+{
+    // Inherit constructors
+    using MakeRepeatTuple <N, Ts...> :: Tuple::Tuple;
+};
+
+// Empty Base Optimisation
+template <size_t N>
+struct RepeatTuple <N> {};
+
 template <typename... Ts>
 struct Tuple : MakeTuple <Ts...>::Tuple 
 {
