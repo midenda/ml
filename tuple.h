@@ -6,17 +6,11 @@
     #include <string>
 #endif
 
+#include "./meta.h"
+
 //TODO: mark constexpr functions as constexpr
 
 typedef unsigned int uint;
-
-template <bool, typename = void> struct SFINAE {};
-
-template <typename T>
-struct SFINAE <true, T>
-{
-    using type = T;
-};
 
 template <uint I, typename T>
 struct TupleLeaf
@@ -136,24 +130,24 @@ private:
             };
             
             template <uint I = 0, typename OutputType, class Class, typename InputType, typename... Parameters, typename... Args>
-            typename SFINAE <I < N, OutputType>::type Propagate (OutputType (Class::* F) (InputType, Parameters...), InputType&& input, Args&&... args)
+            meta::SFINAE <I < N, OutputType> Propagate (OutputType (Class::* F) (InputType, Parameters...), InputType&& input, Args&&... args)
             {
                 return Propagate <I + 1> (F, (Get <I> ().*F)(static_cast <InputType&&> (input), static_cast <Args&&> (args)...), static_cast <Args&&> (args)...);
             };
             template <uint I, typename OutputType, class Class, typename InputType, typename... Parameters, typename... Args> 
-            typename SFINAE <I == N, OutputType>::type Propagate (OutputType (Class::*) (InputType, Parameters...), InputType&& input, Args&&...) 
+            meta::SFINAE <I == N, OutputType> Propagate (OutputType (Class::*) (InputType, Parameters...), InputType&& input, Args&&...) 
             {
                 return static_cast <InputType&&> (input);
             };
             
             template <uint I = N - 1, typename OutputType, class Class, typename InputType, typename... Parameters, typename... Args>
-            typename SFINAE <0 < I, OutputType>::type BackPropagate (OutputType (Class::* F) (InputType, Parameters...), InputType (Class::* map) (), InputType&& input, Args&&... args)
+            meta::SFINAE <0 < I, OutputType> BackPropagate (OutputType (Class::* F) (InputType, Parameters...), InputType (Class::* map) (), InputType&& input, Args&&... args)
             {
                 (Get <I> ().*F)((Get <I - 1> ().*map) (), static_cast <Args&&> (args)...);
                 return BackPropagate <I - 1> (F, map, static_cast <InputType&&> (input), static_cast <Args&&> (args)...);
             };
             template <uint I = N - 1, typename OutputType, class Class, typename InputType, typename... Parameters, typename... Args>
-            typename SFINAE <I == 0, OutputType>::type BackPropagate (OutputType (Class::* F) (InputType, Parameters...), InputType (Class::*) (), InputType&& input, Args&&... args) 
+            meta::SFINAE <I == 0, OutputType> BackPropagate (OutputType (Class::* F) (InputType, Parameters...), InputType (Class::*) (), InputType&& input, Args&&... args) 
             {
                 return (Get <0> ().*F) (static_cast <InputType&&> (input), static_cast <Args&&> (args)...);
             };
@@ -161,42 +155,42 @@ private:
             #if DEBUG_LEVEL == 1
 
             template <uint I = 0>
-            typename SFINAE <I < N, void>::type Print (std::ostream& os = std::cout)
+            meta::SFINAE <I < N, void> Print (std::ostream& os = std::cout)
             {
                 static_cast <TupleLeaf <I, Type <I>>*> (this) -> Print (os);
                 Print <I + 1> (os);
             };
             template <uint I>
-            typename SFINAE <I == N, void>::type Print (std::ostream& = std::cout) {};
+            meta::SFINAE <I == N, void> Print (std::ostream& = std::cout) {};
 
             #endif
 
             //TODO: only works if all elements are same type, can't pass templates
             //? use functor (see Call() below, can't template operator() so messy syntax) or ...?
             // template <uint I = 0, typename Function, typename... Args> 
-            // typename SFINAE <I < N>::type foreach (Function F, Args... args) 
+            // meta::SFINAE <I < N> foreach (Function F, Args... args) 
             // { 
             //     F (Get <I> (), args...);
             //     foreach <I + 1, Function, Args...> (F, args...);
             // };
             // template <uint I, typename Function, typename... Args> 
-            // typename SFINAE <I == N>::type foreach (Function, Args...) {};
+            // meta::SFINAE <I == N> foreach (Function, Args...) {};
 
             //! deprecate
             // template <typename Functor, typename... Args> requires Callable <Functor, Type <0>>
             // [[ deprecated ("functionality moved to 'foreach'") ]]
-            // typename SFINAE <0 < N>::type Call (Args... args)
+            // meta::SFINAE <0 < N> Call (Args... args)
             // {
             //     Functor :: template call <Type <0>> (Get <0> (), args...);
             //     Call <1, Functor, Args...> (args...); 
             // };
             // template <uint I = 0, typename Functor, typename... Args> requires Callable <Functor, Type <I>> //? default argument I = 0 doesn't allow Call <Functor> ()
-            // typename SFINAE <I < N>::type Call (Args... args)
+            // meta::SFINAE <I < N> Call (Args... args)
             // {
             //     Functor :: template call <Type <I>> (Get <I> (), args...);
             //     Call <I + 1, Functor, Args...> (args...);
             // };
-            // template <uint I = 0, typename Functor, typename... Args> typename SFINAE <I == N>::type Call (Args...) {};
+            // template <uint I = 0, typename Functor, typename... Args> meta::SFINAE <I == N> Call (Args...) {};
         };
     };
 
