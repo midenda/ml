@@ -1806,6 +1806,127 @@ public:
     };
 };
 
+template <size_t Repeats, typename... Layers> //requires (std::is_base_of_v <BaseLayer, Layers> && ...)
+class MixedLayers : private RepeatTuple <Repeats, Layers...>, public virtual BaseLayer
+{
+// Type definitions and Tuple specialisations
+private:
+    using Base = BaseLayer;
+    using Tuple = RepeatTuple <Repeats, Layers...>;
+    static constexpr const uint N = Repeats * sizeof... (Layers);
+
+    template <uint I>
+    Tuple:: template Type <I>& Get () 
+    {
+        return Tuple:: template Get <I> ();
+    };
+
+public:
+
+    // Inherit constructors 
+    using RepeatTuple <Repeats, Layers...>::RepeatTuple;
+
+    void Init (Layers&&... args)
+    {
+        Tuple::Init (static_cast <Layers&&> (args)...);
+    };
+
+    template <typename... Args>
+    void Init (Args... args)
+    {
+        Tuple::Init (args...);
+    };
+
+    virtual const Base::OutputType& GetActivations ()
+    override 
+    {
+        return Get <N - 1> ().GetActivations ();
+    };
+    
+    virtual const typename Base::OutputType& SetActivations (const typename Base::InputType& input)
+    override
+    {
+        return Tuple::Propagate (&Base::SetActivations, input);
+    };
+
+    virtual const Base::BatchOutputType& GetBatchActivations ()
+    override 
+    {
+        return Get <N - 1> ().GetBatchActivations ();
+    };
+
+    virtual const typename Base::BatchOutputType& SetBatchActivations (const typename Base::BatchInputType& input)
+    override
+    {
+        return Tuple::Propagate (&Base::SetBatchActivations, input);
+    };  
+
+    virtual const typename Base::OutputType& SetGradients (const Base::InputType& input, Base::OutputType& gradient, float regularisation_factor) 
+    override
+    {
+        return Tuple::BackPropagate (&Base::SetGradients, &Base::GetActivations, input, gradient, regularisation_factor);  
+    };
+
+    virtual const typename Base::BatchOutputType& SetBatchGradients (const Tensor <float, 2>& previous_activations, Tensor <float, 2>& gradient, float regularisation_factor)
+    override
+    {   
+        return Tuple::BackPropagate (&Base::SetBatchGradients, &Base::GetBatchActivations, previous_activations, gradient, regularisation_factor);
+    };
+
+    virtual void UpdateBatchSize (size_t batch_size)
+    override 
+    {
+        return Tuple::ForEach (&Base::UpdateBatchSize, batch_size);
+    };
+
+    virtual void ResetGradients ()
+    override
+    {
+        Tuple::ForEach (&Base::ResetGradients);
+    };
+    
+    virtual void UpdateParameters (LearningRate learning_rate) 
+    override
+    {
+        Tuple::ForEach (&Base::UpdateParameters, learning_rate);
+    }; 
+
+    virtual void UpdateMomentum (LearningRate learning_rate, float momentum) 
+    override
+    {
+        Tuple::ForEach (&Base::UpdateMomentum, learning_rate, momentum);
+    };
+
+    virtual void UpdateRMSProp (LearningRate learning_rate, float rms_decay_rate) 
+    override
+    {
+        Tuple::ForEach (&Base::UpdateRMSProp, learning_rate, rms_decay_rate);
+    };
+
+    virtual void UpdateRMSPropNesterov (LearningRate learning_rate, float momentum, float rms_decay_rate) 
+    override
+    {
+        Tuple::ForEach (&Base::UpdateRMSPropNesterov, learning_rate, momentum, rms_decay_rate);
+    };
+
+    virtual void UpdateNesterovInterim (float momentum) 
+    override
+    {
+        Tuple::ForEach (&Base::UpdateNesterovInterim, momentum);
+    };
+
+    virtual float Regulariser (float total)
+    override
+    {
+        return Tuple::Propagate (&Base::Regulariser, (float)0.01);
+    };
+
+    virtual void Reset ()
+    override
+    {
+        Tuple::ForEach (&Base::Reset);
+    }; 
+}; 
 
 template <typename... Layers> requires (std::is_base_of_v <BaseLayer, Layers> && ...)
 class Network : private Tuple <Layers...>
