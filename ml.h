@@ -11,22 +11,12 @@
     #include <string>
 #endif
 
+#include "./meta.h"
 #include "./tensor.h"
 #include "./tuple.h"
 // #include "./preprocess.h"
 
-// Implementation of std::conditional
-// template <bool, typename T, typename F>
-// struct conditional
-// {
-//     typedef T type;
-// };
-
-// template <typename T, typename F>
-// struct conditional <false, T, F>
-// {
-//     typedef F type;
-// };
+#define DEFAULT_BATCH_SIZE 32
 
 #if DEBUG_LEVEL == 1
 
@@ -744,6 +734,87 @@ struct LearningRate
     };
 };
 
+enum Algorithm 
+{
+    Basic,
+    Stochastic,
+    StochasticMomentum,
+    StochasticNesterov,
+    RMSProp,
+    RMSPropNesterov,
+    NesterovInterim,
+    Adam //TODO:
+};
+
+std::ostream& operator<< (std::ostream& os, const Algorithm& algorithm)
+{
+    switch (algorithm)
+    {
+    case Basic:
+        os << "Basic";
+        break;
+    case Stochastic:
+        os << "Stochastic";
+        break;
+    case StochasticMomentum:
+        os << "StochasticMomentum";
+        break;
+    case StochasticNesterov:
+        os << "StochasticNesterov";
+        break;
+    case RMSProp:
+        os << "RMSProp";
+        break;
+    case RMSPropNesterov:
+        os << "RMSPropNesterov";
+        break;
+    case NesterovInterim:
+        os << "NesterovInterim";
+        break;
+    case Adam:
+        os << "Adam";
+        break;
+    };
+    
+    return os;
+};
+
+struct ProgressBar
+{
+    size_t total; 
+    Algorithm algorithm;
+    std::string message;
+
+    ProgressBar (size_t total, Algorithm algorithm = Basic, std::string message = "", uint i = 0) : total { total }, algorithm { algorithm }, message { message } {};
+
+    ~ProgressBar ()
+    {
+        std::cout << std::flush << "\r\e[K" << "Training Complete! \n(Algorithm: " << algorithm << ", " << message << ") " << std::endl;
+    };
+
+    void operator()(uint i) 
+    {
+        uint progress = i * 100 / total;
+
+        if (((progress * 10) % 10) == 0)
+        {
+            std::cout << '\r' << "progress: ";
+            for (uint j = 0; j < progress/2; j++)
+            {
+                std::cout << '#';
+            };
+
+            for (uint j = 0; j < 50 - progress/2; j++)
+            {
+                std::cout << ' ';
+            };
+
+            std::cout << progress << '%';
+            std::cout << std::flush;
+        }; 
+    };
+};
+
 //TODO: make compatible with different layer types
 struct BaseLayer 
 {
@@ -1133,6 +1204,7 @@ struct ConvolutionLayer
 
 struct FeedForwardLayer : virtual BaseLayer
 {
+private:
     //? Batch allocate these so heap memory is better organised?
     Tensor <float, 2> weights;
     Tensor <float, 1> biases;
@@ -1157,16 +1229,19 @@ struct FeedForwardLayer : virtual BaseLayer
     Tensor <float, 1> bias_gradients;
 
     ActivationFunction activation_function;
+    size_t batch_size = DEFAULT_BATCH_SIZE;
 
+public:
     FeedForwardLayer () {};
 
-    FeedForwardLayer (const Tensor <float, 2>& w, const Tensor <float, 1>& b, ActivationFunction act_fn, const size_t batch_size = 32)
+    FeedForwardLayer (const Tensor <float, 2>& w, const Tensor <float, 1>& b, ActivationFunction act_fn, const size_t batch_size = DEFAULT_BATCH_SIZE)
+        : batch_size { batch_size }
     {
         Init (w, b, act_fn, batch_size);
     };
 
     // TODO: template constructor with new Tensor API (dimension)
-    void Init (const Tensor <float, 2>& w, const Tensor <float, 1>& b, ActivationFunction act_fn, const size_t batch_size)
+    void Init (const Tensor <float, 2>& w, const Tensor <float, 1>& b, ActivationFunction act_fn, const size_t batch_size = DEFAULT_BATCH_SIZE)
     {
         weights           .Init (w.dimensions, w.elements);
         biases            .Init (b.length,     b.elements);
@@ -1181,13 +1256,14 @@ struct FeedForwardLayer : virtual BaseLayer
         activation_function = act_fn; 
     };
 
-    FeedForwardLayer (size_t M, size_t N, ActivationFunction act_fn, const size_t batch_size = 32)
+    FeedForwardLayer (size_t M, size_t N, ActivationFunction act_fn, const size_t batch_size = DEFAULT_BATCH_SIZE)
+        : batch_size { batch_size }
     {
         // std::cout << "Constructing Layer! " << std::endl;
         Init (M, N, act_fn, batch_size);
     };
     
-    void Init (size_t M, size_t N, ActivationFunction act_fn, const size_t batch_size)
+    void Init (size_t M, size_t N, ActivationFunction act_fn, const size_t batch_size = DEFAULT_BATCH_SIZE)
     {
         // std::cout << "Initialising Layer with M=" << M << " and N=" << N << std::endl;
 
@@ -1211,7 +1287,7 @@ struct FeedForwardLayer : virtual BaseLayer
     };
 
     #if DEBUG_LEVEL == 1
-    FeedForwardLayer (const FeedForwardLayer&) = delete;
+    FeedForwardLayer (const FeedForwardLayer&) = delete; //? potentially necessary for repeated layers eg MixedLayers <4, FeedForwardLayer... >
     // {
     //     std::cout << "Copying Layer! " << std::endl;
     // };
@@ -1221,6 +1297,12 @@ struct FeedForwardLayer : virtual BaseLayer
 
     // FeedForwardLayer (FeedForwardLayer&& other) = delete;
     FeedForwardLayer (FeedForwardLayer&& other)
+        : batch_size { other.batch_size }
+    {
+        Init (static_cast <FeedForwardLayer&&> (other));
+    };
+
+    void Init (FeedForwardLayer&& other)
     {
         // std::cout << "Moving Layer! " << std::endl;
         weights           .Init (static_cast <Tensor <float, 2>&&> (other.weights));
@@ -1234,6 +1316,11 @@ struct FeedForwardLayer : virtual BaseLayer
         activations       .Init (static_cast <Tensor <float, 1>&&> (other.activations));
         batch_activations .Init (static_cast <Tensor <float, 2>&&> (other.batch_activations));
         activation_function = other.activation_function; 
+    };
+
+    FeedForwardLayer Copy () const
+    {
+        return FeedForwardLayer { weights, biases, activation_function, batch_size };
     };
 
     ~FeedForwardLayer () 
@@ -1498,55 +1585,49 @@ struct FeedForwardLayer : virtual BaseLayer
 template <typename Layer, size_t N>
 struct Layers : virtual BaseLayer //? requires std::is_base_of <BaseLayer, Layer>::value ?
 {
-    using LossFunctionType = float (*) (const OutputType&, const OutputType&);
-    using LossGradientType = void  (*) (const OutputType&, const OutputType&, OutputType&);
-
+private:
     Layer layers [N];
 
-    //TODO: why are these here? either put in layer or network
-    LossFunctionType LossFunction;
-    LossGradientType LossGradient;
-
+public:
     Layers () {};
 
-    template <typename... Args>
-    Layers (Args... args)
-        : LossFunction (MeanSquaredError <float, 1>), 
-          LossGradient (MeanSquaredErrorGradient <float, 1>)
+    Layers (Layers&& other)
     {
         for (uint i = 0; i < N; i++)
         {
-            layers [i].Init (args...);
+            layers [i].Init (static_cast <Layer&&> (other.layers [i]));
         };
     };
 
+    Layers (const Layer& layer) 
+    {
+        for (uint i = 0; i < N; i++)
+        {
+            layers [i].Init (layer.Copy ());
+        };
+    };
+
+    //? .... && (!(sizeof... (Args) == 1)) doesn't allow Layer to have a single argument constructor
+    template <typename... Args> requires (meta::different_type <Layer, Args> && ...) && (!(sizeof... (Args) == 1))
+    Layers (Args&&... args)
+    {
+        for (uint i = 0; i < N; i++)
+        {
+            layers [i].Init (static_cast <Args&&> (args)...);
+        };
+    };
+
+    //? this is a bit FeedForwardLayer specific, generalise
     Layers 
     (
         size_t dimensions [N + 1], 
         ActivationFunction functions [N], 
-        LossFunctionType f = MeanSquaredError <float, 1>,
-        LossGradientType df = MeanSquaredErrorGradient <float, 1>,
         size_t batch_size = 32
     )
-        : LossFunction (f), LossGradient (df)
     {
         Init (dimensions, functions, batch_size);
     };
-
-    void Init 
-    (
-        size_t dimensions [N + 1], 
-        ActivationFunction functions [N], 
-        LossFunctionType f,
-        LossGradientType df,
-        size_t batch_size
-    )
-    {
-        LossFunction (f);
-        LossGradient (df);
-        Init (dimensions, functions, batch_size);
-    };
-
+    
     void Init 
     (
         size_t dimensions [N + 1], 
@@ -1559,11 +1640,34 @@ struct Layers : virtual BaseLayer //? requires std::is_base_of <BaseLayer, Layer
             layers [i].Init (dimensions [i + 1], dimensions [i], functions [i], batch_size);
         };
     };
+
+    Layers 
+    (
+        std::initializer_list <size_t> dimensions, 
+        std::initializer_list <ActivationFunction> functions,
+        size_t batch_size = 32
+    )
+    {
+        Init (dimensions, functions, batch_size);
+    };
+
+    void Init 
+    (
+        std::initializer_list <size_t> dimensions, 
+        std::initializer_list <ActivationFunction> functions,
+        size_t batch_size
+    )
+    {
+        for (uint i = 0; i < N; i++)
+        {
+            layers [i].Init (dimensions.begin () [i + 1], dimensions.begin () [i], functions.begin () [i], batch_size);
+        };
+    };
     
     virtual const OutputType& GetActivations () 
     override
     {
-        return layers [N - 1].activations;
+        return layers [N - 1].GetActivations ();
     };
     
     virtual const OutputType& SetActivations (const InputType& input) 
@@ -1573,16 +1677,16 @@ struct Layers : virtual BaseLayer //? requires std::is_base_of <BaseLayer, Layer
         
         for (uint i = 1; i < N; i++)
         {
-            layers [i].SetActivations (layers [i - 1].activations);
+            layers [i].SetActivations (layers [i - 1].GetActivations ());
         };
         
-        return layers [N - 1].activations;
+        return layers [N - 1].GetActivations ();
     };
 
     virtual const BatchOutputType& GetBatchActivations () 
     override
     {
-        return layers [N - 1].batch_activations;
+        return layers [N - 1].GetBatchActivations ();
     };
 
     virtual const BatchOutputType& SetBatchActivations (const BatchInputType& input) 
@@ -1592,10 +1696,10 @@ struct Layers : virtual BaseLayer //? requires std::is_base_of <BaseLayer, Layer
         
         for (uint i = 1; i < N; i++)
         {
-            layers [i].SetBatchActivations (layers [i - 1].batch_activations);
+            layers [i].SetBatchActivations (layers [i - 1].GetBatchActivations ());
         };
 
-        return layers [N - 1].batch_activations;
+        return layers [N - 1].GetBatchActivations ();
     };
 
     virtual const OutputType& SetGradients (const InputType& input, OutputType& gradient, float regularisation_factor) 
@@ -1603,11 +1707,11 @@ struct Layers : virtual BaseLayer //? requires std::is_base_of <BaseLayer, Layer
     {
         for (uint i = N - 1; i > 0; i--)
         {
-            layers [i].SetGradients (layers [i - 1].activations, gradient, regularisation_factor);
+            layers [i].SetGradients (layers [i - 1].GetActivations (), gradient, regularisation_factor);
         };
         layers [0].SetGradients (input, gradient, regularisation_factor);
 
-        return layers [0].activations;
+        return layers [0].GetActivations ();
     };
 
     virtual const BatchOutputType& SetBatchGradients (const BatchInputType& input, BatchOutputType& gradient, float regularisation_factor) 
@@ -1615,11 +1719,11 @@ struct Layers : virtual BaseLayer //? requires std::is_base_of <BaseLayer, Layer
     {
         for (uint i = N - 1; i > 0; i--)
         {
-            layers [i].SetBatchGradients (layers [i - 1].batch_activations, gradient, regularisation_factor);
+            layers [i].SetBatchGradients (layers [i - 1].GetBatchActivations (), gradient, regularisation_factor);
         };
         layers [0].SetBatchGradients (input, gradient, regularisation_factor);
 
-        return layers [0].batch_activations;
+        return layers [0].GetBatchActivations ();
     };
     
     virtual void UpdateParameters (LearningRate learning_rate) 
@@ -1702,82 +1806,6 @@ struct Layers : virtual BaseLayer //? requires std::is_base_of <BaseLayer, Layer
     };
 };
 
-enum Algorithm 
-{
-    Basic,
-    Stochastic,
-    StochasticMomentum,
-    StochasticNesterov,
-    RMSProp,
-    RMSPropNesterov,
-    NesterovInterim
-    //TODO: Adam
-};
-
-std::ostream& operator<< (std::ostream& os, Algorithm algorithm)
-{
-    switch (algorithm)
-    {
-    case Basic:
-        os << "Basic";
-        break;
-    case Stochastic:
-        os << "Stochastic";
-        break;
-    case StochasticMomentum:
-        os << "StochasticMomentum";
-        break;
-    case StochasticNesterov:
-        os << "StochasticNesterov";
-        break;
-    case RMSProp:
-        os << "RMSProp";
-        break;
-    case RMSPropNesterov:
-        os << "RMSPropNesterov";
-        break;
-    case NesterovInterim:
-        os << "NesterovInterim";
-        break;
-    };
-    
-    return os;
-};
-
-struct ProgressBar
-{
-    size_t total; 
-    Algorithm algorithm;
-
-    ProgressBar (size_t total, Algorithm algorithm = Basic, uint i = 0) : total { total }, algorithm { algorithm } {};
-
-    ~ProgressBar ()
-    {
-        std::cout << std::flush << "\r\e[K" << "Training Complete! (" << algorithm << ") " << std::endl;
-    };
-
-    void operator()(uint i) 
-    {
-        uint progress = i * 100 / total;
-
-        if (((progress * 10) % 10) == 0)
-        {
-            std::cout << '\r' << "progress: ";
-            for (uint j = 0; j < progress/2; j++)
-            {
-                std::cout << '#';
-            };
-
-            for (uint j = 0; j < 50 - progress/2; j++)
-            {
-                std::cout << ' ';
-            };
-
-            std::cout << progress << '%';
-            std::cout << std::flush;
-        }; 
-    };
-};
 
 template <typename... Layers> requires (std::is_base_of_v <BaseLayer, Layers> && ...)
 class Network : private Tuple <Layers...>
@@ -1785,36 +1813,65 @@ class Network : private Tuple <Layers...>
 // Type definitions and Tuple specialisations
 private:
     using Base = BaseLayer;
+    using Tuple = Tuple <Layers...>;
     static constexpr const uint N = sizeof... (Layers);
     using OutputFunction = const Tensor <float, 2>& (*) (const Tensor <float, 2>&);
 
+    using LossFunctionType = float (*) (const Base::OutputType&, const Base::OutputType&);
+    using LossGradientType = void  (*) (const Base::OutputType&, const Base::OutputType&, Base::OutputType&);
+    
     template <uint I>
-    Tuple <Layers...> :: template Type <I>& Get () 
+    Tuple :: template Type <I>& Get () 
     {
-        return Tuple <Layers...> :: template Get <I> ();
+        return Tuple :: template Get <I> ();
     };
-
-// Private data members
+    
+    // Private data members
 private:
     LearningRate learning_rate; // { 0.1, 1000 };
     float regularisation_factor; // = (float)1e-5;
     float momentum; // 0.9
     float rms_decay_rate; // 0.1
+    size_t batch_size;
     OutputFunction output_fn;
+    LossFunctionType LossFunction;
+    LossGradientType LossGradient;
 
 public:
-    Network (LearningRate learning_rate, float regularisation_factor, float momentum, float rms_decay_rate, OutputFunction output_fn, Layers&&... args) 
-        : Tuple <Layers...> (static_cast <Layers&&> (args)...), 
+    Network 
+    (
+        LearningRate learning_rate, 
+        float regularisation_factor, 
+        float momentum, 
+        float rms_decay_rate, 
+        OutputFunction output_fn, 
+        LossFunctionType LossFunction = MeanSquaredError <float, 1>,
+        LossGradientType LossGradient = MeanSquaredErrorGradient <float, 1>, 
+        Layers&&... args
+    ) 
+        : Tuple (static_cast <Layers&&> (args)...), 
             learning_rate { learning_rate }, regularisation_factor { regularisation_factor },
-            momentum { momentum }, rms_decay_rate { rms_decay_rate }, output_fn { output_fn }
+            momentum { momentum }, rms_decay_rate { rms_decay_rate }, output_fn { output_fn },
+            LossFunction { LossFunction }, LossGradient { LossGradient }
     {
     };
 
     template <typename... Args>
-    Network (LearningRate learning_rate, float regularisation_factor, float momentum, float rms_decay_rate, OutputFunction output_fn, Args... args) 
-        : Tuple <Layers...> (args...),
+    Network 
+    (
+        LearningRate learning_rate, 
+        float regularisation_factor, 
+        float momentum, 
+        float rms_decay_rate, 
+        OutputFunction output_fn, 
+        LossFunctionType LossFunction = MeanSquaredError <float, 1>,
+        LossGradientType LossGradient = MeanSquaredErrorGradient <float, 1>, 
+        Args... args
+    ) 
+        : Tuple (args...),
             learning_rate { learning_rate }, regularisation_factor { regularisation_factor },
-            momentum { momentum }, rms_decay_rate { rms_decay_rate }, output_fn { output_fn }
+            momentum { momentum }, rms_decay_rate { rms_decay_rate }, output_fn { output_fn },
+            LossFunction { LossFunction }, LossGradient { LossGradient }
     {
     };
 
@@ -1822,41 +1879,40 @@ public:
 
     const typename Base::OutputType& Propagate (const typename Base::InputType& input)
     {
-        return Tuple <Layers...>::Propagate (&Base::SetActivations, input);
+        return Tuple::Propagate (&Base::SetActivations, input);
     };
     
     const typename Base::OutputType& BackPropagate (const Base::InputType& input, const Base::OutputType& output, const Base::OutputType& expected) 
     {
         Base::OutputType gradient (expected.dimensions);
 
-        Get <N - 1> ().LossGradient (output, expected, gradient);
+        LossGradient (output, expected, gradient);
 
-        return Tuple <Layers...>::BackPropagate (&Base::SetGradients, &Base::GetActivations, input, gradient, regularisation_factor);  
+        return Tuple::BackPropagate (&Base::SetGradients, &Base::GetActivations, input, gradient, regularisation_factor);  
     };
 
     const typename Base::BatchOutputType& BatchPropagate (const typename Base::BatchInputType& input)
     {
-        return Tuple <Layers...>::Propagate (&Base::SetBatchActivations, input);
+        return Tuple::Propagate (&Base::SetBatchActivations, input);
     };  
 
-    template <size_t batch_size>
     const typename Base::BatchOutputType& BatchBackPropagate (const Tensor <float, 2>& input, const Tensor <float, 2>& expected)
     {
-        Tuple <Layers...>::ForEach (&Base::UpdateBatchSize, batch_size);
+        Tuple::ForEach (&Base::UpdateBatchSize, batch_size);
         
         const Base::BatchOutputType& output = BatchPropagate (input);
         Base::BatchOutputType gradient (expected.dimensions);
 
         for (uint i = 0; i < batch_size; i++)
         {
-            Get <N - 1> ().LossGradient (output [i], expected [i], gradient [i]);
+            LossGradient (output [i], expected [i], gradient [i]);
         };
-        return Tuple <Layers...>::BackPropagate (&Base::SetBatchGradients, &Base::GetBatchActivations, input, gradient, regularisation_factor);
+        return Tuple::BackPropagate (&Base::SetBatchGradients, &Base::GetBatchActivations, input, gradient, regularisation_factor);
     };
 
     void ResetGradients ()
     {
-        Tuple <Layers...>::ForEach (&Base::ResetGradients);
+        Tuple::ForEach (&Base::ResetGradients);
     };
     
     void UpdateParameters (Algorithm algorithm) 
@@ -1864,25 +1920,29 @@ public:
         switch (algorithm)
         {
             case Basic:
-                Tuple <Layers...>::ForEach (&Base::UpdateParameters, learning_rate);
+                Tuple::ForEach (&Base::UpdateParameters, learning_rate);
                 break;
             case Stochastic:
-                Tuple <Layers...>::ForEach (&Base::UpdateParameters, learning_rate);
+                Tuple::ForEach (&Base::UpdateParameters, learning_rate);
                 break;
             case StochasticMomentum:
-                Tuple <Layers...>::ForEach (&Base::UpdateMomentum, learning_rate, momentum);
+                Tuple::ForEach (&Base::UpdateMomentum, learning_rate, momentum);
                 break;
             case StochasticNesterov:
-                Tuple <Layers...>::ForEach (&Base::UpdateMomentum, learning_rate, momentum);
+                Tuple::ForEach (&Base::UpdateMomentum, learning_rate, momentum);
                 break;
             case RMSProp:
-                Tuple <Layers...>::ForEach (&Base::UpdateRMSProp, learning_rate, rms_decay_rate);
+                Tuple::ForEach (&Base::UpdateRMSProp, learning_rate, rms_decay_rate);
                 break;
             case RMSPropNesterov:
-                Tuple <Layers...>::ForEach (&Base::UpdateRMSPropNesterov, learning_rate, momentum, rms_decay_rate);
+                Tuple::ForEach (&Base::UpdateRMSPropNesterov, learning_rate, momentum, rms_decay_rate);
                 break;
             case NesterovInterim:
-                Tuple <Layers...>::ForEach (&Base::UpdateNesterovInterim, momentum);
+                Tuple::ForEach (&Base::UpdateNesterovInterim, momentum);
+                break;
+            case Adam:
+                //TODO:
+                std::cout << "Warning: 'Adam' has not yet been implemented. " << std::endl;
                 break;
         };
     };
@@ -1891,24 +1951,27 @@ public:
 
     float Regulariser ()
     {
-        return Tuple <Layers...>::Propagate (&Base::Regulariser, (float)0.01);
+        return Tuple::Propagate (&Base::Regulariser, (float)0.01);
     };
 
     void Reset ()
     {
-        Tuple <Layers...>::ForEach (&Base::Reset);
+        Tuple::ForEach (&Base::Reset);
     };
 
     float Cost (const Base::OutputType& output, const Base::OutputType& expected) 
     {
-        float loss = Get <N - 1> ().LossFunction (output, expected);
+        float loss = LossFunction (output, expected);
+
+        //? is regulation required alongside batch normalisation?
         return loss + regularisation_factor * Regulariser (); //? regulariser per layer or per network?
     };
 
     //? might have some difficulties using templates if data read from file
-    template <size_t set_size, size_t epochs, size_t batch_size, Algorithm algorithm>
-    Tensor <float, 2> GradientDescent (Tensor <float, 1> input_set [set_size], Tensor <float, 1> expected_set [set_size])
+    template <size_t set_size, size_t epochs, Algorithm algorithm>
+    Tensor <float, 2> GradientDescent (Tensor <float, 1> input_set [set_size], Tensor <float, 1> expected_set [set_size], size_t initial_batch_size = 32)
     {
+        batch_size = initial_batch_size; //TODO: variable batch size
         size_t batches = set_size / batch_size;
 
         const size_t dimensions [2] = { epochs, batches };
@@ -1930,8 +1993,8 @@ public:
             indices [i] = i;
         };
         
-        ProgressBar progress (epochs * batches, algorithm);
-        
+        std::string training_info = "epochs: " + std::to_string (epochs) + ", batches: " + std::to_string (batches) + ", batch_size: " + std::to_string (batch_size) + ", set_size: " + std::to_string (set_size);
+        ProgressBar progress (epochs * batches, algorithm, training_info);
         
         for (uint i = 0; i < epochs; i++)
         {
@@ -1963,8 +2026,7 @@ public:
                 const typename Base::OutputType& output = Propagate (shuffled_input_set [j][0]); //TODO: calculate costs differently
                 costs [i][j] = Cost (output, shuffled_expected_set [j][0]);
                 
-                //TODO:
-                BatchBackPropagate <batch_size> (shuffled_input_set [j], shuffled_expected_set [j]);
+                BatchBackPropagate (shuffled_input_set [j], shuffled_expected_set [j]);
                 // for (uint k = 0; k < batch_size; k++)
                 // {
                 //     index = indices [j * batch_size + k];
@@ -1973,7 +2035,7 @@ public:
 
                 UpdateParameters (algorithm);
  
-                progress (j + i * set_size);
+                progress (j + i * batches);
             }; 
         };
 
@@ -1982,5 +2044,7 @@ public:
     };
 };
 
-//TODO: clever template wizardry to make combinations of alternating layers eg [10(FF, BN), 20(CNV, FF, BN, FF, BN), 20 (FF, BN)]
-//? Network <Layers <MixedLayers <FF, BN>, 10>, Layers <MixedLayers <CNV, FF, BN, FF, BN>, 20>, Layers <MixedLayers <FF, BN>, 20>>
+using FF = FeedForwardLayer;
+// using CNV = ConvolutionLayer;
+// using RN = RecurrentLayer;
+// using BN = BatchNormalisationLayer;
